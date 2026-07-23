@@ -55,17 +55,21 @@ const ALIASES = {
   online:['online','connectivity']
 };
 
-function digitSVG(ch, h) {
-  const w = h * 46 / 84, on = SEG[ch] || '';
-  let s = `<svg width="${w}" height="${h}" viewBox="0 0 46 84" style="display:block;overflow:visible">`;
+// Digit size is a CSS class (dig-time / dig-date), not a fixed pixel height --
+// width comes from a clamp() bound to the card's own width (container query
+// units), so digits shrink to fit on a narrow card/window instead of
+// overflowing past its edges. Height follows via aspect-ratio, same as before.
+function digitSVG(ch, cls) {
+  const on = SEG[ch] || '';
+  let s = `<svg class="${cls}" viewBox="0 0 46 84" style="display:block;overflow:visible">`;
   for (const k in SEGP) {
     const lit = on.indexOf(k) >= 0;
     s += `<polygon points="${SEGP[k]}" fill="${lit ? '#f4f6ff' : '#2c3038'}"${lit ? ' style="filter:drop-shadow(0 0 4px rgba(230,238,255,.45))"' : ''}/>`;
   }
   return s + '</svg>';
 }
-function digitsHTML(num, h) {
-  return String(num).split('').map(c => c === ' ' ? `<span style="display:inline-block;width:${h*46/84}px"></span>` : digitSVG(c, h)).join('');
+function digitsHTML(num, cls) {
+  return String(num).split('').map(c => c === ' ' ? `<span class="${cls} sp"></span>` : digitSVG(c, cls)).join('');
 }
 
 class ClockwiseCard extends HTMLElement {
@@ -134,22 +138,31 @@ class ClockwiseCard extends HTMLElement {
 
   _build() {
     this.innerHTML = `
-      <ha-card>
+      <ha-card style="max-width:460px;margin:0 auto">
       <style>
-        .cw{--fg:#f4f6ff;--dim:#2c3038;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-        .cw .panel{background:radial-gradient(130% 130% at 50% 0%,#14161c 0,#030304 78%);padding:14px 16px 10px;border-radius:12px 12px 0 0}
+        .cw{--fg:#f4f6ff;--dim:#2c3038;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+          container-type:inline-size;
+          /* digit widths scale with the card's own width (not the viewport) so
+             they shrink to fit instead of overflowing past the card on a
+             narrow window/column; height follows via aspect-ratio. */
+          --dig-time-w:clamp(24px,14cqw,66px); --dig-date-w:clamp(12px,6.8cqw,32px)}
+        .cw .panel{background:radial-gradient(130% 130% at 50% 0%,#14161c 0,#030304 78%);padding:14px 16px 10px;border-radius:12px 12px 0 0;overflow-x:auto}
         .cw .top{display:flex;align-items:stretch;gap:8px}
         .cw .dowcol{display:flex;flex-direction:column;justify-content:space-between;padding:2px 0}
-        .cw .dowcol span{font-family:ui-monospace,"Consolas","SF Mono","Courier New",monospace;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#31353d;width:46px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;text-indent:1.5px}
+        .cw .dowcol span{font-family:ui-monospace,"Consolas","SF Mono","Courier New",monospace;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#31353d;width:clamp(30px,12cqw,46px);height:15px;display:flex;align-items:center;justify-content:center;line-height:1;text-indent:1.5px}
         .cw .dowcol span.on{color:var(--fg);text-shadow:0 0 10px rgba(230,238,255,.65)}
         .cw .time{display:flex;align-items:center;flex:1;justify-content:space-evenly}
         .cw .digits{display:flex;gap:7px}
-        .cw .colon{display:flex;flex-direction:column;align-items:center;height:120px;padding:0 3px}
+        .cw .dig-time{width:var(--dig-time-w);aspect-ratio:46/84;flex:0 0 auto}
+        .cw .dig-date{width:var(--dig-date-w);aspect-ratio:46/84;flex:0 0 auto}
+        .cw .colon{display:flex;flex-direction:column;align-items:center;height:calc(var(--dig-time-w) * 84 / 46);padding:0 3px}
         .cw .colon .logo{width:11px;height:11px;border-radius:50%;background:#26282e;margin-top:3px;flex:0 0 auto;transition:background .2s,box-shadow .2s}
         .cw .colon .logo.on{background:#ff3b3b;box-shadow:0 0 9px 2px rgba(255,59,59,.6)}
         .cw .cdots{flex:1;display:flex;flex-direction:column;justify-content:center;gap:22px}
         .cw .cdots i{width:14px;height:14px;border-radius:50%;background:var(--fg);box-shadow:0 0 12px 2px rgba(230,238,255,.55);animation:cwblink 2s steps(1,end) infinite}
         @keyframes cwblink{0%,50%{opacity:1}50.01%,100%{opacity:.12}}
+        /* Blinking implies a live clock -- freeze it dim while the data isn't. */
+        .cw.offline .cdots i{animation:none;opacity:.12;box-shadow:none}
         .cw .toast{position:absolute;left:50%;top:10px;transform:translate(-50%,-6px);background:rgba(34,211,238,.16);color:#22d3ee;font-size:12px;font-weight:600;padding:5px 12px;border-radius:16px;box-shadow:inset 0 0 0 1px rgba(34,211,238,.35);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:5}
         .cw .toast.show{opacity:1;transform:translate(-50%,0)}
         .cw{position:relative}
@@ -163,12 +176,12 @@ class ClockwiseCard extends HTMLElement {
         .cw .pill .d{width:7px;height:7px;border-radius:50%;background:#3d4250}
         .cw .pill .d.g{background:#34d399;box-shadow:0 0 6px #34d399}
         .cw .pill .d.r{background:#fb7185;box-shadow:0 0 6px #fb7185}
-        .cw .row{display:flex;align-items:center;gap:10px}
+        .cw .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
         .cw .row .lbl{font-size:11.5px;color:#8a8f98;width:34px;flex:0 0 auto}
-        .cw input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:6px;border-radius:4px;background:#23262f;outline:none}
+        .cw input[type=range]{flex:1 1 60px;min-width:60px;-webkit-appearance:none;appearance:none;height:6px;border-radius:4px;background:#23262f;outline:none}
         .cw input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#22d3ee;cursor:pointer;box-shadow:0 0 0 4px rgba(34,211,238,.15)}
         .cw input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:50%;background:#22d3ee;cursor:pointer}
-        .cw .seg{display:flex;background:#1b1e26;border-radius:8px;padding:2px;gap:2px;max-width:190px}
+        .cw .seg{display:flex;background:#1b1e26;border-radius:8px;padding:2px;gap:2px;max-width:190px;flex:0 0 auto}
         .cw .seg b{flex:1;text-align:center;font-size:11.5px;font-weight:600;padding:5px 6px;border-radius:6px;color:#8a8f98;cursor:pointer}
         .cw .seg b.on{background:#22d3ee;color:#04121a}
         .cw .chips{display:flex;gap:6px}
@@ -259,17 +272,23 @@ class ClockwiseCard extends HTMLElement {
 
     // time "H:MM" -- blank (not garbage digits) while the sensor is unavailable
     const timeState = this._state('sensor', 'time');
+    // Freeze the blinking colon (it implies a live clock) once the data is
+    // stale -- prefer the explicit `online` entity, fall back to "does the
+    // time sensor have a real value" if that entity isn't set up.
+    const onlineState = this._state('binary_sensor', 'online');
+    const offline = onlineState !== undefined ? onlineState !== 'on' : !this._valid(timeState);
+    q('.cw').classList.toggle('offline', offline);
     const t = this._valid(timeState) ? timeState.split(':') : [];
-    q('#cw-h').innerHTML = digitsHTML(t[0] || '', 120);
-    q('#cw-m').innerHTML = digitsHTML(t[1] || '', 120);
+    q('#cw-h').innerHTML = digitsHTML(t[0] || '', 'dig-time');
+    q('#cw-m').innerHTML = digitsHTML(t[1] || '', 'dig-time');
 
     // date "YYYY-MM-DD"
     const dateState = this._state('sensor', 'date');
     const dparts = this._valid(dateState) ? dateState.split('-') : [];
     const yr = dparts[0] || '', mo = dparts[1] ? String(Number(dparts[1])) : '', dd = dparts[2] || '';
-    q('#cw-d').innerHTML = digitsHTML(dd, 58);
-    q('#cw-mo').innerHTML = digitsHTML(mo, 58);
-    q('#cw-y').innerHTML = digitsHTML(yr, 58);
+    q('#cw-d').innerHTML = digitsHTML(dd, 'dig-date');
+    q('#cw-mo').innerHTML = digitsHTML(mo, 'dig-date');
+    q('#cw-y').innerHTML = digitsHTML(yr, 'dig-date');
 
     // day of week (1=Mon..7=Sun)
     const dowState = this._state('sensor', 'dow');
@@ -290,10 +309,9 @@ class ClockwiseCard extends HTMLElement {
     // connection indicator -- reflects HA reachability (the `online` entity goes
     // offline via MQTT last-will if the clock drops off, even when the clock
     // itself still runs).
-    const online = this._state('binary_sensor', 'online');
     let pills = '';
-    if (online !== undefined)
-      pills += `<span class="pill"><span class="d ${online === 'on' ? 'g' : 'r'}"></span>${online === 'on' ? 'Connected' : 'Offline'}</span>`;
+    if (onlineState !== undefined)
+      pills += `<span class="pill"><span class="d ${onlineState === 'on' ? 'g' : 'r'}"></span>${onlineState === 'on' ? 'Connected' : 'Offline'}</span>`;
     pills += `<span class="pill"><span class="d ${pres ? 'g' : ''}"></span>${presTxt}</span>`;
     if (pres && this._valid(dist)) pills += `<span class="pill">📏 ${dist} m</span>`;
     if (this._valid(rssi)) pills += `<span class="pill">📶 ${rssi} dBm</span>`;
