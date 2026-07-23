@@ -425,10 +425,12 @@ auto-dim ("dim when empty") is on the same screen. See the standalone
 Over the air, no cable:
 
 ```
-cd firmware_pio
+cd firmware
 pio run
-curl -F "firmware=@.pio/build/d1_mini/firmware.bin" http://<clock-ip>/update
+curl -u admin:<your-PIN> -F "firmware=@.pio/build/d1_mini/firmware.bin" http://<clock-ip>/update
 ```
+
+(If you didn't set a PIN, drop the `-u admin:<your-PIN>` part.)
 
 It reboots itself and comes back in about 15 seconds. If a PIN is set, add
 `-u admin:<pin>`. An interrupted upload leaves the old firmware intact.

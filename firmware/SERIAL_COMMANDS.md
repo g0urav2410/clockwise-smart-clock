@@ -20,7 +20,7 @@ just leftovers from initial bring-up.
 |---|---|
 | `number` (e.g. `42`) | Light exactly one of the 112 raw LED outputs, all others dark. Verify a single segment/wire is soldered and mapped correctly. |
 | `n` / `p` | Step the "one output" selection forward/backward. Walk the whole chain without retyping numbers. |
-| `cN` (N = 0–6) | Light chip N's even-numbered outputs, **adding** to whatever's already lit. Combine chips (`x`, then `c2`, `c3`, `c6`, ...) to check for cross-chip interaction issues — this is how the [ghosting bug](../firmware/GHOSTING_TEST_GUIDE.pdf) was isolated to chips 2/3/6. |
+| `cN` (N = 0–6) | Light chip N's even-numbered outputs, **adding** to whatever's already lit. Combine chips (`x`, then `c2`, `c3`, `c6`, ...) to check for cross-chip interaction issues — this is how the display ghosting bug was isolated to chips 2/3/6 (see [hardware/](../hardware/)). |
 | `x` | Clear the manual test frame (all outputs dark). |
 | `r` | Leave manual test mode, resume the live clock display. |
 | `fNNN` | Set the OE PWM (brightness) frequency live, 100–40000 Hz. For retesting brightness/flicker behavior if the hardware changes. |

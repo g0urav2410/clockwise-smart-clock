@@ -44,8 +44,9 @@ Two tabs and a settings gear — deliberately minimal.
   - **Appearance** — theme: System / Light / AMOLED dark
   - **Device** — name, address, IP, firmware, chip ID, last sync; rename,
     sync, reboot, and in-app OTA
-  - **Advanced** — address + App PIN, and the optional MQTT / Home Assistant
-    broker settings (written to the clock, which connects on its own)
+  - **Advanced** — address + App PIN
+  - **MQTT / Home Assistant** — optional broker settings, written to the clock,
+    which connects on its own (with a "clear saved login" option for no-auth brokers)
   - **My clocks** — device switcher, add/remove
 
 Connection state is always explicit on Home (searching / PIN required /

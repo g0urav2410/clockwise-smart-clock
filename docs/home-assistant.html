@@ -37,9 +37,10 @@ controls.</p>
    (Settings → Add-ons → Add-on store → Mosquitto broker → Install → Start).</li>
 <li><strong>MQTT integration</strong> — Settings → Devices &amp; Services → Add → <strong>MQTT</strong>
    (it usually auto-detects Mosquitto; accept the defaults).</li>
-<li><strong>Point the clock at it</strong> — in the Clockwise app: Settings → Advanced → MQTT
-   → enter Home Assistant's <strong>IP address</strong>, port <strong>1883</strong>, and the Mosquitto
-   username/password if you set one → Save.</li>
+<li><strong>Point the clock at it</strong> — in the Clockwise app: Settings → <strong>MQTT / Home
+   Assistant</strong> → enter Home Assistant's <strong>IP address</strong>, port <strong>1883</strong>, and the
+   Mosquitto username/password if you set one → Save. (Leave the login blank if
+   your broker allows anonymous connections.)</li>
 </ol>
 <p>Within a few seconds a <strong>Clockwise</strong> device appears under
 Settings → Devices &amp; Services → MQTT, with all the entities:</p>

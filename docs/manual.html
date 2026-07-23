@@ -769,10 +769,11 @@ auto-dim ("dim when empty") is on the same screen. See the standalone
 <hr>
 <h2 id="updating-firmware">Updating firmware</h2>
 <p>Over the air, no cable:</p>
-<pre><code>cd firmware_pio
+<pre><code>cd firmware
 pio run
-curl -F &quot;firmware=@.pio/build/d1_mini/firmware.bin&quot; http://&lt;clock-ip&gt;/update
+curl -u admin:&lt;your-PIN&gt; -F &quot;firmware=@.pio/build/d1_mini/firmware.bin&quot; http://&lt;clock-ip&gt;/update
 </code></pre>
+<p>(If you didn't set a PIN, drop the <code>-u admin:&lt;your-PIN&gt;</code> part.)</p>
 <p>It reboots itself and comes back in about 15 seconds. If a PIN is set, add
 <code>-u admin:&lt;pin&gt;</code>. An interrupted upload leaves the old firmware intact.</p>
 <hr>
