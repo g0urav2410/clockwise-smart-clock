@@ -1,13 +1,17 @@
 # Clockwise
 
-**A smart-clock brain for a cheap wall clock.** Clockwise replaces the guts of an
-Ajanta Quartz **OLC-501** 7-segment wall clock with a Wemos **D1 Mini (ESP8266)**,
-turning a dumb display into a network clock with automatic time, adaptive
-brightness, presence sensing, a phone app, and full Home Assistant integration —
-all running **locally**, no cloud.
+**A smart-clock brain for a 7-segment wall clock.** Clockwise replaces the guts
+of a cheap wall clock with a Wemos **D1 Mini (ESP8266)**, turning a dumb display
+into a network clock with automatic time, adaptive brightness, presence sensing,
+a phone app, and full Home Assistant integration — all running **locally**, no
+cloud.
 
-> Built for one specific clock, but the firmware, app, and Home Assistant pieces
-> are a useful reference for any ESP8266 7-segment display project.
+Built and proven on the **Ajanta Quartz OLC-501**, and a clean reference for any
+ESP 7-segment clock. Support for more boards is planned.
+
+> ### ⚡ [Flash it from your browser →](https://g0urav2410.github.io/clockwise-smart-clock/)
+> No toolchain needed — plug in a D1 Mini and flash from Chrome/Edge. The same
+> site hosts the full docs.
 
 ---
 

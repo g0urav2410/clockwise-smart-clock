@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Segment map — Clockwise</title>
+<meta name="description" content="The 7-segment wiring / bit map used by the firmware.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<div class="nav"><div class="row">
+  <a class="brand" href="index.html"><span class="dot"></span> Clockwise</a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="index.html#flash">Flash</a>
+    <a href="docs.html">Docs</a>
+    <a class="gh" href="https://github.com/g0urav2410/clockwise-smart-clock">GitHub</a>
+  </nav>
+</div></div>
+
+<article class="doc">
+<a class="back" href="docs.html">← All docs</a>
+<h1 id="ajanta-clock-segment-map-output-position-physical-led">Ajanta Clock — Segment Map (output position → physical LED)</h1>
+<p>Fill this in by walking the mapper (tc_chain_test): for each POS 0..111, note
+which LED/segment lights. 80 of 112 are used; the rest are spares.</p>
+<h2 id="naming-convention">Naming convention</h2>
+<p><strong>7-segment digit segments</strong> (standard a–g):</p>
+<pre><code>     aaa
+    f   b
+    f   b
+     ggg
+    e   c
+    e   c
+     ddd
+</code></pre>
+<p><strong>Digit labels:</strong>
+- Time:  H1 H2 : M1 M2   (H1 = tens-of-hour, only shows "1")
+- Date:  DD (D1 D2)  MM (O1 O2)  YY (Y1 Y2)
+- Indicators: iD iM iY (the 3 date/month/year marker LEDs)
+- Days:  dMon dTue dWed dThu dFri dSat dSun
+- Other: LOGO, COLON, SEC</p>
+<p>Example entry:  <code>POS 5 = M1-a</code> (top segment of first minute digit)
+Spare/nothing:  <code>POS 5 = (none)</code></p>
+<h2 id="chip-region-done-from-c-walk">CHIP → REGION (done — from 'c' walk)</h2>
+<p>Assuming firmware CHIP 0 = outputs 0-15 = first chip on SDI (confirm indexing!).</p>
+<table>
+<thead>
+<tr>
+<th>Chip</th>
+<th>Outputs</th>
+<th>Region</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>0 - 15</td>
+<td>Year, last 2 digits (YY low)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>16 - 31</td>
+<td>Year, first 2 digits + Y indicator LED</td>
+</tr>
+<tr>
+<td>3</td>
+<td>32 - 47</td>
+<td>Date (DD, day-of-month)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>48 - 63</td>
+<td>Days (day-of-week Mon..Sun)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>64 - 79</td>
+<td>Hours (H1 partial + H2)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>80 - 95</td>
+<td>Minutes (M1 + M2)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>96 - 111</td>
+<td>D indicator, Months (MM), M indicator</td>
+</tr>
+</tbody>
+</table>
+<p>Next: map segments within each chip. Do Hours (64-79) + Minutes (80-95) first
+to get a working clock fastest, then colon, then date/year/days.</p>
+<h2 id="segments-mapped-output-number-per-segment">SEGMENTS MAPPED (output number per segment)</h2>
+<p>HOURS (chip 5, outputs 64-79):
+  H1 (tens, shows only "1"):  b=65  c=66
+  H2 (units, full digit):     a=77  b=76  c=74  d=73  e=72  f=71  g=75
+  LOGO led (red) = 79
+  Unmapped in this chip: 64,67,68,69,70,78 (colon? spare? — check later)</p>
+<p>MINUTES (chip 6, outputs 80-95):
+  M1 (full digit):  a=80  b=86  c=85  d=83  e=82  f=81  g=84
+  M2 (full digit):  a=91  b=93  c=94  d=95  e=89  f=90  g=92
+  Unmapped in this chip: 87,88 (colon? spare? — check later)</p>
+<p>TODO segments: colon, date (DD chip3), month (chip7), year (chip1,2),
+day-of-week (chip4), + the 3 D/M/Y indicators.</p>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>HOURS + MINUTES VERIFIED: firmware renders 12:34 from RTC correctly,
+    proper 12h format (1-12, no leading zero). Time display WORKS. &lt;&lt;&lt;</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2 id="full-segment-map-from-mapping-session">FULL SEGMENT MAP (from mapping session)</h2>
+<p>seg order a,b,c,d,e,f,g</p>
+<p>HOURS (chip4, 64-79):
+  H1 (tens "1"): b=65 c=66
+  H2:  a=77 b=76 c=74 d=73 e=72 f=71 g=75
+LOGO led (red) = 79</p>
+<p>MINUTES (chip5, 80-95):
+  M1:  a=80 b=86 c=85 d=83 e=82 f=81 g=84
+  M2:  a=91 b=93 c=94 d=95 e=89 f=90 g=92</p>
+<p>DATE / day-of-month (chip2, 32-47):
+  D1 (tens): a=34 b=35 c=36 d=37 f=38 g=47   (e? tens only 0-3, verify)
+  D2 (units): a=46 b=45 c=43 d=42 e=41 f=40 g=44</p>
+<p>MONTH (chip6, 96-111 low part):
+  O1 (tens "1"): b=102 c=101
+  O2 (units): a=109 b=108 c=107 d=103 e=104 f=105 g=106
+  D-indicator LED = 110    M-indicator LED = 111</p>
+<p>DAYS (chip3, 48-63) — each day = 2 LEDs (two outputs):
+  Mon=62+48  Tue=61+49  Wed=60+50  Thu=59+51
+  Fri=58+52  Sat=57+53  Sun=56+54</p>
+<p>YEAR (chip0+chip1, 0-31) — 4 digits, VERIFIED (shows 2026 clean):
+  Yd1 (thousands "2"): a=16 b=22 d=19 e=18 g=20   (c,f absent)
+  Yd2 (hundreds  "0"): a=29 b=28 c=27 d=23 e=24 f=25   (g absent)
+  Yd3 (tens):          a=0  b=5  c=4  d=3  e=2  f=1  g=6
+  Yd4 (units):         a=15 b=14 c=9  d=13 e=12 f=11 g=10
+  Y-indicator LED = 8</p>
+<p>Known shorts fixed during mapping (e.g. output 42 was bridged c+g).</p>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>FULL DISPLAY VERIFIED: time + date + month + year + day-of-week all render
+    correctly from RTC. Entire display mapped. &lt;&lt;&lt;</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<p>COLON: cathode rewired to spare chain output 67 -&gt; blinks via frame bit,
+brightness follows OE. WORKS.</p>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>CORE CLOCK COMPLETE: full display + RTC + NTP sync + blinking colon,
+    all ESP-driven, correct time/date/day. &lt;&lt;&lt;
+Remaining = smart features: auto-brightness, mmWave presence, WiFiManager,
+MQTT/Home Assistant, OTA, daily auto NTP sync.</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2 id="map">Map</h2>
+<table>
+<thead>
+<tr>
+<th>POS</th>
+<th>LED</th>
+<th>POS</th>
+<th>LED</th>
+<th>POS</th>
+<th>LED</th>
+<th>POS</th>
+<th>LED</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td></td>
+<td>28</td>
+<td></td>
+<td>56</td>
+<td></td>
+<td>84</td>
+<td></td>
+</tr>
+<tr>
+<td>1</td>
+<td></td>
+<td>29</td>
+<td></td>
+<td>57</td>
+<td></td>
+<td>85</td>
+<td></td>
+</tr>
+<tr>
+<td>2</td>
+<td></td>
+<td>30</td>
+<td></td>
+<td>58</td>
+<td></td>
+<td>86</td>
+<td></td>
+</tr>
+<tr>
+<td>3</td>
+<td></td>
+<td>31</td>
+<td></td>
+<td>59</td>
+<td></td>
+<td>87</td>
+<td></td>
+</tr>
+<tr>
+<td>4</td>
+<td></td>
+<td>32</td>
+<td></td>
+<td>60</td>
+<td></td>
+<td>88</td>
+<td></td>
+</tr>
+<tr>
+<td>5</td>
+<td></td>
+<td>33</td>
+<td></td>
+<td>61</td>
+<td></td>
+<td>89</td>
+<td></td>
+</tr>
+<tr>
+<td>6</td>
+<td></td>
+<td>34</td>
+<td></td>
+<td>62</td>
+<td></td>
+<td>90</td>
+<td></td>
+</tr>
+<tr>
+<td>7</td>
+<td></td>
+<td>35</td>
+<td></td>
+<td>63</td>
+<td></td>
+<td>91</td>
+<td></td>
+</tr>
+<tr>
+<td>8</td>
+<td></td>
+<td>36</td>
+<td></td>
+<td>64</td>
+<td></td>
+<td>92</td>
+<td></td>
+</tr>
+<tr>
+<td>9</td>
+<td></td>
+<td>37</td>
+<td></td>
+<td>65</td>
+<td></td>
+<td>93</td>
+<td></td>
+</tr>
+<tr>
+<td>10</td>
+<td></td>
+<td>38</td>
+<td></td>
+<td>66</td>
+<td></td>
+<td>94</td>
+<td></td>
+</tr>
+<tr>
+<td>11</td>
+<td></td>
+<td>39</td>
+<td></td>
+<td>67</td>
+<td></td>
+<td>95</td>
+<td></td>
+</tr>
+<tr>
+<td>12</td>
+<td></td>
+<td>40</td>
+<td></td>
+<td>68</td>
+<td></td>
+<td>96</td>
+<td></td>
+</tr>
+<tr>
+<td>13</td>
+<td></td>
+<td>41</td>
+<td></td>
+<td>69</td>
+<td></td>
+<td>97</td>
+<td></td>
+</tr>
+<tr>
+<td>14</td>
+<td></td>
+<td>42</td>
+<td></td>
+<td>70</td>
+<td></td>
+<td>98</td>
+<td></td>
+</tr>
+<tr>
+<td>15</td>
+<td></td>
+<td>43</td>
+<td></td>
+<td>71</td>
+<td></td>
+<td>99</td>
+<td></td>
+</tr>
+<tr>
+<td>16</td>
+<td></td>
+<td>44</td>
+<td></td>
+<td>72</td>
+<td></td>
+<td>100</td>
+<td></td>
+</tr>
+<tr>
+<td>17</td>
+<td></td>
+<td>45</td>
+<td></td>
+<td>73</td>
+<td></td>
+<td>101</td>
+<td></td>
+</tr>
+<tr>
+<td>18</td>
+<td></td>
+<td>46</td>
+<td></td>
+<td>74</td>
+<td></td>
+<td>102</td>
+<td></td>
+</tr>
+<tr>
+<td>19</td>
+<td></td>
+<td>47</td>
+<td></td>
+<td>75</td>
+<td></td>
+<td>103</td>
+<td></td>
+</tr>
+<tr>
+<td>20</td>
+<td></td>
+<td>48</td>
+<td></td>
+<td>76</td>
+<td></td>
+<td>104</td>
+<td></td>
+</tr>
+<tr>
+<td>21</td>
+<td></td>
+<td>49</td>
+<td></td>
+<td>77</td>
+<td></td>
+<td>105</td>
+<td></td>
+</tr>
+<tr>
+<td>22</td>
+<td></td>
+<td>50</td>
+<td></td>
+<td>78</td>
+<td></td>
+<td>106</td>
+<td></td>
+</tr>
+<tr>
+<td>23</td>
+<td></td>
+<td>51</td>
+<td></td>
+<td>79</td>
+<td></td>
+<td>107</td>
+<td></td>
+</tr>
+<tr>
+<td>24</td>
+<td></td>
+<td>52</td>
+<td></td>
+<td>80</td>
+<td></td>
+<td>108</td>
+<td></td>
+</tr>
+<tr>
+<td>25</td>
+<td></td>
+<td>53</td>
+<td></td>
+<td>81</td>
+<td></td>
+<td>109</td>
+<td></td>
+</tr>
+<tr>
+<td>26</td>
+<td></td>
+<td>54</td>
+<td></td>
+<td>82</td>
+<td></td>
+<td>110</td>
+<td></td>
+</tr>
+<tr>
+<td>27</td>
+<td></td>
+<td>55</td>
+<td></td>
+<td>83</td>
+<td></td>
+<td>111</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</article>
+
+<footer class="site">Open source (GPL v3) · built on the ESP8266 ·
+<a href="https://github.com/g0urav2410/clockwise-smart-clock">source on GitHub</a></footer>
+
+</body>
+</html>

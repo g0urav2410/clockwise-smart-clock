@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual — Clockwise</title>
+<meta name="description" content="Set up and use the clock day to day, plus troubleshooting.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<div class="nav"><div class="row">
+  <a class="brand" href="index.html"><span class="dot"></span> Clockwise</a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="index.html#flash">Flash</a>
+    <a href="docs.html">Docs</a>
+    <a class="gh" href="https://github.com/g0urav2410/clockwise-smart-clock">GitHub</a>
+  </nav>
+</div></div>
+
+<article class="doc">
+<a class="back" href="docs.html">← All docs</a>
+<h1 id="clockwise-manual">Clockwise — manual</h1>
+<p>An Ajanta OLC-501 wall clock with the original controller replaced by a Wemos D1
+Mini (ESP8266). It keeps time from an SD3078 RTC, corrects itself from NTP,
+dims itself, and is controlled from an Android app over plain HTTP on your own
+WiFi — no cloud, no account, no broker required.</p>
+<ul>
+<li><a href="#hardware">Hardware</a></li>
+<li><a href="#how-brightness-works">How brightness works</a></li>
+<li><a href="#brightness-curves">Brightness curves</a></li>
+<li><a href="#pwm-frequency-and-flicker">PWM frequency and flicker</a></li>
+<li><a href="#brightness-modes">Brightness modes</a></li>
+<li><a href="#sun-mode">Sun mode</a></li>
+<li><a href="#time-and-the-rtc">Time and the RTC</a></li>
+<li><a href="#http-api">HTTP API</a></li>
+<li><a href="#config-reference">Config reference</a></li>
+<li><a href="#serial-commands">Serial commands</a></li>
+<li><a href="#updating-firmware">Updating firmware</a></li>
+<li><a href="#location-and-timezone">Location and timezone</a></li>
+<li><a href="#resetting-the-clock">Resetting the clock</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+<hr>
+<h2 id="hardware">Hardware</h2>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Display</td>
+<td>Ajanta OLC-501, 112 LED segments via shift registers, constant-current drivers</td>
+</tr>
+<tr>
+<td>Controller</td>
+<td>Wemos D1 Mini (ESP8266)</td>
+</tr>
+<tr>
+<td>RTC</td>
+<td>SD3078 over I²C at address <code>0x32</code></td>
+</tr>
+<tr>
+<td>Presence</td>
+<td>HLK-LD2402 24GHz mmWave radar, on the ESP's hardware UART — engineering mode, full data. Driver: the standalone <a href="https://github.com/g0urav2410/LD2402">LD2402</a> library</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pins">Pins</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>GPIO</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PIN_SDI</code></td>
+<td>13</td>
+<td>shift register data</td>
+</tr>
+<tr>
+<td><code>PIN_CLK</code></td>
+<td>12</td>
+<td>shift register clock</td>
+</tr>
+<tr>
+<td><code>PIN_LE</code></td>
+<td>5</td>
+<td>latch enable</td>
+</tr>
+<tr>
+<td><code>PIN_OE</code></td>
+<td>14</td>
+<td>output enable — <strong>active low</strong>, PWM'd for brightness</td>
+</tr>
+<tr>
+<td><code>PIN_SDA</code></td>
+<td>0</td>
+<td>I²C to RTC</td>
+</tr>
+<tr>
+<td><code>PIN_SCL</code></td>
+<td>2</td>
+<td>I²C to RTC</td>
+</tr>
+<tr>
+<td><code>PIN_BUTTON</code></td>
+<td>4 (D2)</td>
+<td>reset button — see below</td>
+</tr>
+<tr>
+<td>UART RX/TX</td>
+<td>3 / 1</td>
+<td>HLK-LD2402 radar (TX→RX, RX→TX), 115200 8N1</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The UART is the radar's alone — there is no serial command console.</strong> The
+sensor's binary data would otherwise be misread as console commands (it blanked
+the display). USB <em>flashing</em> still works normally.</p>
+<p>Brightness is <strong>only</strong> ever changed by PWM on <code>PIN_OE</code>. Because OE is active
+low, the firmware writes <code>1023 - duty</code>: a larger duty means a brighter display.</p>
+<p>The button wires between <strong>D2 and GND</strong>, the ordinary way: the internal
+pull-up holds it HIGH when idle and pressing pulls it LOW. No external resistor.</p>
+<p>D2 is one of the five ESP8266 pins with no boot-time role (the mmWave sensor is
+on the hardware UART, not D2). The button was previously on D0, which
+sits in the RTC domain, can read HIGH around reset, and has a pull-<strong>down</strong> that
+only exists under <code>INPUT_PULLDOWN_16</code> — plain <code>INPUT</code> left it floating, and
+floating noise here reads as a reset. <strong>D0 is now spare.</strong></p>
+<hr>
+<h2 id="how-brightness-works">How brightness works</h2>
+<p>Three numbers are involved, and confusing them causes most of the head-scratching:</p>
+<ul>
+<li><strong>Percent (0–100)</strong> — what you set in the app, what the API speaks, what gets
+  stored in config.</li>
+<li><strong>Duty (0–1023)</strong> — the actual PWM value on the pin. This is what the LEDs
+  respond to.</li>
+<li><strong>The curve</strong> — how percent maps onto duty. This is where the interesting
+  behaviour lives.</li>
+</ul>
+<p>The mapping is deliberately <em>not</em> a straight line, because your eye isn't
+linear. Going from duty 10 to 20 doubles the light and is obvious; going from
+500 to 510 is invisible. A good curve makes each 1% step <em>look</em> like the same
+size change.</p>
+<p>Transitions between levels are faded in <strong>duty</strong> space, not percent, and
+throttled to ~50 Hz. Fading in percent was too coarse at the dim end — 2% to 1%
+is only two steps to move through, which is a jump with extra ceremony. In duty
+those same levels are ten steps apart.</p>
+<hr>
+<h2 id="brightness-curves">Brightness curves</h2>
+<p>Set in the app under <strong>Settings → Advanced → Display tuning</strong>. Four options
+(<code>gamma</code>: 100 Linear, 180 Standard, 220 Strong, 0 Even):</p>
+<h3 id="duty-produced-at-each-slider-percent">Duty produced at each slider percent</h3>
+<table>
+<thead>
+<tr>
+<th>pct</th>
+<th>Linear</th>
+<th>Standard</th>
+<th>Strong</th>
+<th>Even</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>10</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr>
+<td>2</td>
+<td>20</td>
+<td>1</td>
+<td>1</td>
+<td>2</td>
+</tr>
+<tr>
+<td>3</td>
+<td>31</td>
+<td>2</td>
+<td>1</td>
+<td>3</td>
+</tr>
+<tr>
+<td>4</td>
+<td>41</td>
+<td>3</td>
+<td>1</td>
+<td>5</td>
+</tr>
+<tr>
+<td>5</td>
+<td>51</td>
+<td>5</td>
+<td>1</td>
+<td>6</td>
+</tr>
+<tr>
+<td>10</td>
+<td>102</td>
+<td>16</td>
+<td>6</td>
+<td>12</td>
+</tr>
+<tr>
+<td>20</td>
+<td>205</td>
+<td>56</td>
+<td>30</td>
+<td>31</td>
+</tr>
+<tr>
+<td>30</td>
+<td>307</td>
+<td>117</td>
+<td>72</td>
+<td>64</td>
+</tr>
+<tr>
+<td>50</td>
+<td>512</td>
+<td>294</td>
+<td>223</td>
+<td>188</td>
+</tr>
+<tr>
+<td>75</td>
+<td>767</td>
+<td>610</td>
+<td>543</td>
+<td>494</td>
+</tr>
+<tr>
+<td>100</td>
+<td>1023</td>
+<td>1023</td>
+<td>1023</td>
+<td>1023</td>
+</tr>
+</tbody>
+</table>
+<h3 id="distinct-levels-how-many-slider-positions-actually-change-anything">Distinct levels — how many slider positions actually change anything</h3>
+<table>
+<thead>
+<tr>
+<th>Range</th>
+<th>Linear</th>
+<th>Standard</th>
+<th>Strong</th>
+<th>Even</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1–5%</td>
+<td>5/5</td>
+<td>4/5</td>
+<td><strong>1/5</strong></td>
+<td>5/5</td>
+</tr>
+<tr>
+<td>1–10%</td>
+<td>10/10</td>
+<td>9/10</td>
+<td>6/10</td>
+<td>10/10</td>
+</tr>
+<tr>
+<td>1–20%</td>
+<td>20/20</td>
+<td>19/20</td>
+<td>16/20</td>
+<td>20/20</td>
+</tr>
+<tr>
+<td>1–100%</td>
+<td>100/100</td>
+<td>99/100</td>
+<td>96/100</td>
+<td>100/100</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-each-one-is">What each one is</h3>
+<p><strong>Linear</strong> (<code>gamma: 100</code>) — duty tracks percent directly. Every position is
+distinct, but the step <em>sizes</em> are wrong: 1%→2% doubles the light while
+99%→100% is imperceptible. This is what makes the dim end feel steppy.</p>
+<p><strong>Standard</strong> (<code>gamma: 180</code>) — a power curve. Evens the steps out, costs one
+level at the very bottom.</p>
+<p><strong>Strong</strong> (<code>gamma: 220</code>) — a stronger power curve. It collapses <strong>1–5% onto a
+single duty value</strong>. It appears smooth down there only because nothing is
+changing — four of those five slider positions do nothing at all.</p>
+<p><strong>Even</strong> (<code>gamma: 0</code>) — the CIE 1931 lightness curve, which is what human
+brightness perception actually follows. The only option that keeps every percent
+a distinct level <em>and</em> keeps the steps perceptually even. Lands exactly on duty
+1 at 1% and duty 1023 at 100%, so nothing falls off either end.</p>
+<p><strong>Recommended: Even.</strong> It is what Strong is trying to be, without the dead zone.</p>
+<h3 id="the-floor-nobody-can-beat">The floor nobody can beat</h3>
+<p>All four curves share the same worst-case jump: <strong>2×</strong>, at the very bottom,
+where the only step available is duty 1 → duty 2. That is a hardware limit of
+10-bit PWM, not a curve problem. <code>dutyFloor</code> (default 1) sets the lowest
+non-zero duty; raise it if very short pulses shimmer.</p>
+<hr>
+<h2 id="pwm-frequency-and-flicker">PWM frequency and flicker</h2>
+<p><code>oeFreq</code> sets the PWM frequency (100–40000 Hz, default 1000).</p>
+<p><strong>Higher is not better.</strong> Higher frequency means shorter pulses, and the
+ESP8266's PWM is generated in software — WiFi interrupts jitter the timing by
+roughly a microsecond. When a pulse is only a couple of microseconds long, a
+microsecond of jitter is a large fraction of it, and you see flicker.</p>
+<p>Pulse width at 1 kHz:</p>
+<table>
+<thead>
+<tr>
+<th>pct</th>
+<th>Linear</th>
+<th>Standard</th>
+<th>Strong</th>
+<th>Even</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1%</td>
+<td>9.8 µs</td>
+<td>1.0 µs</td>
+<td>1.0 µs</td>
+<td>1.0 µs</td>
+</tr>
+<tr>
+<td>2%</td>
+<td>19.6 µs</td>
+<td>1.0 µs</td>
+<td>1.0 µs</td>
+<td>2.0 µs</td>
+</tr>
+<tr>
+<td>5%</td>
+<td>49.9 µs</td>
+<td>4.9 µs</td>
+<td>1.0 µs</td>
+<td>5.9 µs</td>
+</tr>
+<tr>
+<td>10%</td>
+<td>99.7 µs</td>
+<td>15.6 µs</td>
+<td>5.9 µs</td>
+<td>11.7 µs</td>
+</tr>
+</tbody>
+</table>
+<p>Any curve other than Linear sits near 1 µs at the dim end.</p>
+<p><strong>The flicker had a root cause, and it is fixed.</strong> ESP8266 modem sleep suspends
+and wakes the radio periodically, and every wake is a burst of interrupts — the
+jitter that stretches short pulses. It used to flicker visibly at 10–20 kHz.
+With <code>WIFI_NONE_SLEEP</code> set, 20 kHz on the Even curve at 2% brightness stayed
+steady through 3,779 requests in two minutes (~31/sec), which is the worst case
+in every dimension at once: shortest pulses, highest frequency, heaviest radio
+traffic.</p>
+<p>So the old "keep it at 1 kHz" rule no longer applies. The default remains 1000
+because it has the most margin and nothing needs more, but 20 kHz is a tested,
+supported choice.</p>
+<p>If the dim end ever shimmers again, in order of preference:</p>
+<ol>
+<li>Check <code>WIFI_NONE_SLEEP</code> is still being set after WiFi connects — this was the
+   original cause</li>
+<li>Drop <code>oeFreq</code> to 1000, then 500 — doubles every pulse width</li>
+<li>Raise <code>dutyFloor</code> to 3 — never produce a pulse shorter than ~3 µs</li>
+<li>Use the Linear curve — much longer pulses, at the cost of steppiness</li>
+</ol>
+<hr>
+<h2 id="brightness-modes">Brightness modes</h2>
+<p>Set in the app under <strong>Automations</strong>. Exactly one is active at a time, and
+<strong>each mode remembers its own levels</strong> — changing brightness in one does not
+affect the others.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th><code>mode</code></th>
+<th>Stores</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Manual</td>
+<td>0</td>
+<td><code>manual</code></td>
+<td>Stays where you put it. Restored on boot.</td>
+</tr>
+<tr>
+<td>Schedule</td>
+<td>1</td>
+<td><code>full</code>, <code>night</code></td>
+<td>Two levels by clock time, with a timed ramp between.</td>
+</tr>
+<tr>
+<td>Sun</td>
+<td>2</td>
+<td><code>sunFull</code>, <code>sunNight</code></td>
+<td>Follows the real sun for your location.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Schedule</strong> uses <code>nightStart</code>/<code>nightEnd</code> (whole hours, wraps past midnight) and
+<code>transition</code> minutes to ramp rather than switch.</p>
+<p>All automatic changes run from the RTC on the device itself. <strong>No WiFi, phone,
+or broker is needed</strong> — if the network is down the clock still dims correctly.</p>
+<hr>
+<h2 id="sun-mode">Sun mode</h2>
+<p>Brightness follows the sun's height for your location, computed on the ESP from
+its own RTC date/time plus the configured latitude and longitude. There is no
+external data source and no network dependency; it is pure astronomy, the same
+NOAA approximation used everywhere.</p>
+<p>The curve is scaled to <strong>each day's own peak</strong> rather than a fixed angle:</p>
+<pre><code>t = (sin(elevation) - sin(twilight floor)) / (sin(peak today) - sin(twilight floor))
+brightness = sunNight + (sunFull - sunNight) * t
+</code></pre>
+<p>Scaling to the day's own peak matters because the sun's maximum height changes
+with latitude and season. An earlier version ramped between two fixed angles,
+which meant brightness sat pinned at maximum for about ten hours a day in summer
+and under five in winter. Scaling to the peak is self-adjusting and needs no
+tuning. <code>sunHigh</code> is what used to set that ceiling; it is still stored but
+nothing reads it.</p>
+<p>Subtracting the twilight floor matters too, and its absence was a real bug: the
+formula used to be <code>sin(elevation) / sin(peak)</code>, and sine of a <em>negative</em>
+elevation is negative, so everything after sunset clamped to zero. Brightness
+dropped to the night level the instant the sun crossed the horizon and the dusk
+setting could never do anything.</p>
+<h3 id="twilight">Twilight</h3>
+<p>Two settings, one for each end of the day, because the sun is symmetric but the
+use of a clock isn't — you are awake in the evening and asleep before dawn.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Range</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sunDawn</code></td>
+<td>−24° to +20°</td>
+<td>Positive waits until the sun is properly up before brightening; negative starts before sunrise</td>
+</tr>
+<tr>
+<td><code>sunDusk</code></td>
+<td>−24° to +20°</td>
+<td>Negative keeps light after sunset</td>
+</tr>
+</tbody>
+</table>
+<p>Stored as angles rather than minutes because angles are the real definition of
+twilight and behave sensibly at any latitude — "30 minutes after sunset" stops
+meaning anything far north, where in summer the sun barely sets. The app shows
+the resulting offset in minutes, so you never have to think in degrees.</p>
+<p>The cost is a small seasonal drift: measured at 33°N, an angle worth 32 minutes
+in July gives 28–33 across the year. That's under a minute of change per three
+weeks.</p>
+<p>Roughly, at 33°N: −6° ≈ 32 min, −12° ≈ 66 min, −24° ≈ 143 min, +10° ≈ 51 min
+after sunrise, +20° ≈ 101 min.</p>
+<h3 id="the-day-curve">The day curve</h3>
+<p>The app draws the whole day as a filled curve — height is brightness, daylight
+warm and night cool, with sunrise, peak, sunset and daylight length underneath at
+one-minute resolution. It replaced a row of shaded blocks, which couldn't show
+the middle hours differing because the eye can't rank opacity that finely.</p>
+<p>The day's sun positions are computed once and cached, so the twilight sliders can
+show the time an angle produces on every frame of a drag.</p>
+<h3 id="testing-sun-mode-without-waiting-for-dusk">Testing sun mode without waiting for dusk</h3>
+<p><code>firmware/tools_fake_sun.py</code> shifts the clock's longitude to fake a
+different sun position, leaving the RTC untouched:</p>
+<pre><code>py tools_fake_sun.py --host 192.168.0.50 25        aim sun mode at 25%
+py tools_fake_sun.py --host 192.168.0.50 restore   put the real longitude back
+</code></pre>
+<p>While faking, the app's day strip will disagree with reality — it is drawn from
+the same fake longitude. Always restore when finished.</p>
+<hr>
+<h2 id="time-and-the-rtc">Time and the RTC</h2>
+<p>The SD3078 runs in <strong>12-hour mode</strong>. The hour register packs flags into its top
+bits, so a raw dump does not read as a decimal hour:</p>
+<pre><code>0x27  =  0 0 1 0 0 1 1 1
+         │ │ │ └───────┘
+         │ │ │     └── BCD hour = 7
+         │ │ └──────── bit5 = 1 → PM
+         │ └────────── bit6 unused
+         └──────────── bit7 = 0 → 12-hour mode
+</code></pre>
+<p><code>0x27</code> is therefore <strong>7 PM</strong>, not hour 27. The other registers (minutes, date,
+month, year) have no flag bits, so their hex digits read as decimal.</p>
+<p>Internally the firmware passes 24-hour integers and the API reports 24-hour
+strings — both are just unambiguous formats. The display itself shows 12-hour.</p>
+<p><strong>NTP</strong> runs at boot, on demand from the app, and daily at 03:00 if <code>autoSync</code>
+is on. It only writes the RTC when drift exceeds <strong>2 seconds</strong>, so repeated
+syncs do not wear the chip.</p>
+<p>Leading zeros are deliberately blanked: on the hour both minute digits go dark,
+and <code>:01</code>–<code>:09</code> drops the tens digit. This is a design choice, not a fault.</p>
+<hr>
+<h2 id="http-api">HTTP API</h2>
+<p>Plain HTTP on port 80. If an API token is set, requests need Basic auth.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api/info</code></td>
+<td>name, firmware version, IP, chip ID, whether auth is required</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/state</code></td>
+<td>live values — see below</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/config</code></td>
+<td>all persisted settings</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/config</code></td>
+<td>patch any subset of settings; <strong>saves to flash</strong></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/name</code></td>
+<td>rename the clock</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/brightness</code></td>
+<td><code>{"v": 0-100}</code> — live preview, <strong>not</strong> persisted</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/cmd</code></td>
+<td><code>{"cmd": "sync"}</code> or <code>{"cmd": "reboot"}</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/update</code></td>
+<td>OTA firmware upload</td>
+</tr>
+</tbody>
+</table>
+<p><code>/api/state</code> returns:</p>
+<pre><code class="language-json">{&quot;time&quot;:&quot;19:24:13&quot;,&quot;date&quot;:&quot;2026-07-18&quot;,&quot;dow&quot;:6,&quot;rtcOk&quot;:true,
+ &quot;sunElev&quot;:17.83,&quot;sunPct&quot;:15,&quot;brightness&quot;:15,&quot;presence&quot;:false,
+ &quot;lastSync&quot;:&quot;2026-07-18 19:21:51 Sat&quot;,&quot;rssi&quot;:-65,&quot;uptime&quot;:90,
+ &quot;mqttConnected&quot;:false}
+</code></pre>
+<p><code>/api/brightness</code> sets the light immediately without saving, and holds off the
+scheduler for a few seconds so a preview isn't instantly overwritten. Use it for
+slider drags; persist the final value with <code>/api/config</code>.</p>
+<p><strong>The server handles one connection at a time.</strong> Clients should serialise
+requests rather than firing them in parallel.</p>
+<hr>
+<h2 id="config-reference">Config reference</h2>
+<p>Every key below is readable from <code>GET /api/config</code> and settable by posting a
+subset to <code>POST /api/config</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>Clockwise</code></td>
+<td>display name</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>0</td>
+<td>0 manual · 1 schedule · 2 sun</td>
+</tr>
+<tr>
+<td><code>manual</code></td>
+<td>100</td>
+<td>Manual mode's level</td>
+</tr>
+<tr>
+<td><code>full</code></td>
+<td>100</td>
+<td>Schedule daytime level</td>
+</tr>
+<tr>
+<td><code>night</code></td>
+<td>0</td>
+<td>Schedule night level</td>
+</tr>
+<tr>
+<td><code>nightStart</code></td>
+<td>23</td>
+<td>night begins, whole hour</td>
+</tr>
+<tr>
+<td><code>nightEnd</code></td>
+<td>6</td>
+<td>night ends, whole hour</td>
+</tr>
+<tr>
+<td><code>transition</code></td>
+<td>30</td>
+<td>ramp length in minutes</td>
+</tr>
+<tr>
+<td><code>sunFull</code></td>
+<td>100</td>
+<td>Sun mode midday level</td>
+</tr>
+<tr>
+<td><code>sunNight</code></td>
+<td>0</td>
+<td>Sun mode night level</td>
+</tr>
+<tr>
+<td><code>lat</code> / <code>lon</code></td>
+<td>20.59 / 78.96</td>
+<td>location for sun maths</td>
+</tr>
+<tr>
+<td><code>tz</code></td>
+<td><code>IST-5:30</code></td>
+<td>POSIX TZ rule, set from Settings → Device → Location &amp; timezone. Carries the region's DST rule, which newlib applies on every NTP resync — set once, correct forever</td>
+</tr>
+<tr>
+<td><code>sunDawn</code></td>
+<td>−6</td>
+<td>morning twilight floor, −24 to +20</td>
+</tr>
+<tr>
+<td><code>sunDusk</code></td>
+<td>−6</td>
+<td>evening twilight floor, −24 to +20</td>
+</tr>
+<tr>
+<td><code>sunLow</code></td>
+<td>−6</td>
+<td>legacy alias — reads as both, served as <code>sunDusk</code></td>
+</tr>
+<tr>
+<td><code>sunHigh</code></td>
+<td>25</td>
+<td>legacy, nothing reads it</td>
+</tr>
+<tr>
+<td><code>fade</code></td>
+<td>1500</td>
+<td>fade duration in ms</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td>100</td>
+<td>0 = Even (CIE) · 100–300 = power curve</td>
+</tr>
+<tr>
+<td><code>dutyFloor</code></td>
+<td>1</td>
+<td>lowest non-zero PWM duty</td>
+</tr>
+<tr>
+<td><code>oeFreq</code></td>
+<td>1000</td>
+<td>PWM frequency in Hz</td>
+</tr>
+<tr>
+<td><code>logo</code></td>
+<td>true</td>
+<td>logo LED</td>
+</tr>
+<tr>
+<td><code>autoSync</code></td>
+<td>true</td>
+<td>daily 03:00 NTP check</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>300</td>
+<td>presence timeout, seconds</td>
+</tr>
+<tr>
+<td><code>mqttHost</code> / <code>mqttPort</code> / <code>mqttUser</code></td>
+<td>—</td>
+<td>optional broker</td>
+</tr>
+</tbody>
+</table>
+<p><code>sched</code> is a legacy boolean kept for older MQTT clients. Sending it alone forces
+Manual or Schedule; sending <code>mode</code> in the same payload takes precedence.</p>
+<hr>
+<h2 id="serial-console-behind-a-toggle">Serial console — behind a toggle</h2>
+<p>The hardware UART is normally the HLK-LD2402 radar's; the sensor's binary data
+would be misread as commands (it blanked the display), so the serial console is
+<strong>off by default</strong>. Everything the old console did is now done through the app /
+<code>/api/*</code> and OTA.</p>
+<p>If you do need the console (bench work, a repair), there's a persisted toggle —
+<strong>Settings → Presence sensor → USB serial debug</strong> (<code>serialDebug</code> in
+<code>/api/config</code>). How it behaves, simply:</p>
+<ul>
+<li><strong>Off (default):</strong> UART is the sensor's; no console.</li>
+<li><strong>On + sensor still plugged in:</strong> the sensor keeps working; the console stays
+  <strong>asleep</strong>. Flipping the toggle can't break anything.</li>
+<li><strong>On + sensor unplugged:</strong> ~2 s after the stream stops, the console <strong>wakes
+  up</strong> — the same command set listed in
+  <a href="firmware/SERIAL_COMMANDS.md">firmware/SERIAL_COMMANDS.md</a>.</li>
+</ul>
+<p>USB <em>flashing</em> works regardless of the toggle. Turn it off to return to normal.</p>
+<h2 id="presence-sensor-hlk-ld2402">Presence sensor (HLK-LD2402)</h2>
+<p>On the hardware UART, engineering mode — full data. Controlled from
+<strong>Settings → Presence sensor</strong> in the app, over these endpoints:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/sensor</code></td>
+<td>live: presence, moving/still, distance, 32 energy gates (16 motion + 16 micro)</td>
+</tr>
+<tr>
+<td><code>GET /api/sensor/config</code></td>
+<td>firmware, max distance, disappearance delay, power-interference status</td>
+</tr>
+<tr>
+<td><code>POST /api/sensor/config</code></td>
+<td>set max distance / delay / mode / thresholds (<code>save:true</code> also commits to the sensor's flash)</td>
+</tr>
+<tr>
+<td><code>GET /api/sensor/thresholds</code></td>
+<td>all 16 motion + 16 micro per-gate thresholds</td>
+</tr>
+<tr>
+<td><code>POST /api/sensor/calibrate</code></td>
+<td>auto-generate thresholds for the room</td>
+</tr>
+<tr>
+<td><code>POST /api/sensor/autogain</code></td>
+<td>correct a saturated front-end</td>
+</tr>
+</tbody>
+</table>
+<p>Gates are ~0.7 m distance slices, gate 0 nearest. Each has a motion threshold
+(moving targets) and a micro threshold (still / breathing). Presence-based
+auto-dim ("dim when empty") is on the same screen. See the standalone
+<a href="https://github.com/g0urav2410/LD2402">LD2402</a> library for the protocol.</p>
+<hr>
+<h2 id="updating-firmware">Updating firmware</h2>
+<p>Over the air, no cable:</p>
+<pre><code>cd firmware_pio
+pio run
+curl -F &quot;firmware=@.pio/build/d1_mini/firmware.bin&quot; http://&lt;clock-ip&gt;/update
+</code></pre>
+<p>It reboots itself and comes back in about 15 seconds. If a PIN is set, add
+<code>-u admin:&lt;pin&gt;</code>. An interrupted upload leaves the old firmware intact.</p>
+<hr>
+<h2 id="location-and-timezone">Location and timezone</h2>
+<p>One setting, in <strong>Settings → Device → Location &amp; timezone</strong>, because the two
+have to agree: the timezone decides what time is displayed, the coordinates
+decide when the sun rises and sets for sun mode. It sits next to the NTP sync
+row rather than under sun mode, since it governs the clock's core job.</p>
+<p>Three ways it gets set, in order of accuracy:</p>
+<ol>
+<li><strong>Use my location</strong> — GPS. Exact coordinates and the phone's own zone.</li>
+<li><strong>Search</strong> — 15,088 cities and states worldwide. A city is exact; a state
+   is its population-weighted centre, up to ~100km out, which moves sunrise
+   about four minutes. Invisible in a half-hour brightness ramp.</li>
+<li><strong>Nothing</strong> — a brand-new clock picks it up from the browser during WiFi
+   setup, so it is correct out of the box anywhere in the world.</li>
+</ol>
+<h3 id="daylight-saving">Daylight saving</h3>
+<p>Handled entirely by the clock. The stored <code>tz</code> is a POSIX rule such as
+<code>EST5EDT,M3.2.0,M11.1.0</code>, which carries the region's whole DST rule; newlib
+re-resolves it against the current date on every NTP sync. Set the place once
+and the nightly 03:00 sync keeps it right through every future transition,
+forever, with the app never involved again.</p>
+<p>India has no daylight saving, so <code>IST-5:30</code> never changes.</p>
+<h3 id="the-drift-warning-on-home">The drift warning on Home</h3>
+<p>Compares what the clock's RTC reports against universal time plus the clock's
+<em>own</em> timezone offset — not against the phone's clock. A clock deliberately
+set to London is meant to read 4h30 behind an Indian phone; that is not drift.</p>
+<p>The warning means the RTC has genuinely wandered, which points at the nightly
+NTP sync failing: auto-sync switched off, NTP blocked on the network, or a
+failing RTC backup battery. "Sync now" in Settings → Device forces a fetch.</p>
+<p>The offset comes from the clock itself: <code>/api/state</code> reports <code>tzOff</code>, the
+device's current offset with daylight saving already applied. So this works on
+a fresh app install, or a second phone, with nothing configured — the app no
+longer needs its own record of where the clock is.</p>
+<p>It stays silent only against firmware too old to report <code>tzOff</code> on a phone that
+also has no saved zone for the clock. With neither, the app would be comparing
+against <em>its own</em> timezone, which is exactly the false alarm above.</p>
+<hr>
+<h2 id="resetting-the-clock">Resetting the clock</h2>
+<p>Two physical controls, both requiring the case to be open (or extended out of
+it):</p>
+<ul>
+<li><strong>RST button</strong> (built into the D1 Mini) — plain reboot, same as power-cycling.</li>
+<li><strong>Reset button on D2</strong> — hold it and the display stops showing the time and
+  starts counting, telling you what letting go would do:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Display</th>
+<th>Let go here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code>, <code>2</code></td>
+<td>Nothing happens</td>
+</tr>
+<tr>
+<td><code>3 rE</code> … <code>7 rE</code>, with <code>Con</code> on the year digits</td>
+<td><strong>WiFi reset.</strong> Clears the saved network and reboots into the <code>Clockwise-Setup</code> portal, same as first-time setup</td>
+</tr>
+<tr>
+<td><code>8 Fr</code>, with <code>CLr</code> on the year digits</td>
+<td><strong>Factory reset.</strong> Also wipes every setting (brightness, schedule, sun location, PIN) back to defaults</td>
+</tr>
+<tr>
+<td><code>15 no</code></td>
+<td>Nothing — cancelled</td>
+</tr>
+</tbody>
+</table>
+<p>The rest of the display goes dark while you hold it, so there's no chance of
+  misreading the time as the count. The reset fires on release, and the time
+  comes straight back if you release below <code>3</code>.</p>
+<p><strong>Changed your mind?</strong> Keep holding. At 15 seconds the display reads <code>no</code> and
+  releasing does nothing at all. This is also why a button jammed by the case
+  or a mounting screw can't quietly factory-reset the clock — it sails past 8,
+  reaches <code>no</code>, and stops there.</p>
+<p>Plain reboot is also available from the app or <code>/api/cmd</code> (see
+<a href="#http-api">HTTP API</a>) without touching the clock. WiFi reset and factory
+reset are physical-button-only for now — there's no app/API equivalent yet.</p>
+<hr>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>The clock shows <code>no</code> and <code>Con</code> where the date and year go.</strong> It has lost
+WiFi. The notice alternates with the real date and year every 5 seconds, and
+clears itself the moment the network is back. The timing is adjustable over
+serial with <code>a &lt;on&gt; &lt;off&gt;</code> (seconds, saved to flash); <code>a 0 0</code> switches the
+notice off altogether. The time is unaffected — the RTC keeps
+running perfectly without a network, so nothing is wrong with the clock itself;
+it just can't reach NTP to check itself against, or be controlled from the app.</p>
+<p><strong>The app says it can't reach the clock.</strong> Check <code>uptime</code> in <code>/api/state</code> — if
+it keeps climbing, the clock never rebooted and it is a network problem.
+ESP8266 modem sleep was the cause of long unreachable periods; <code>WIFI_NONE_SLEEP</code>
+fixes it.</p>
+<p><strong>The display flickers.</strong> Lower <code>oeFreq</code> (try 1000, then 500). Flicker comes
+from short PWM pulses plus interrupt jitter, and higher frequencies make it
+worse, not better.</p>
+<p><strong>The dim end has visible steps.</strong> Use the Even curve. If it still steps at
+1–2%, that is the duty 1 → 2 hardware floor.</p>
+<p><strong>Brightness changed by itself.</strong> Check which mode is active. Schedule and Sun
+both move brightness on their own, from the RTC, with no network involved.</p>
+<p><strong>The display looks brighter as the room gets darker.</strong> There is no light
+sensor; output is constant while your eyes adapt.</p>
+<p><strong>Sun mode seems wrong.</strong> Look at the day curve. If it is flat, the midday and
+night levels are too close together. If the shape looks right but the timing
+doesn't, check the twilight settings — they move each end independently.</p>
+<p><strong>Times are wrong.</strong> Check Settings → Device → Location &amp; timezone. That one
+setting carries both the timezone and the sun position, and the clock applies
+that region's daylight saving itself from then on, so setting it once fixes it
+for good. If the clock is deliberately set somewhere else, it is <em>supposed</em> to
+show that place's time.</p>
+<p><strong>Forgot the WiFi password / need to switch networks.</strong> Use the D2 reset
+button — hold until the 3rd flash, then let go. See
+<a href="#resetting-the-clock">Resetting the clock</a>.</p>
+<hr>
+<p>For hardware internals and how the display was reverse-engineered, see
+<a href="hardware/">hardware/</a>.</p>
+</article>
+
+<footer class="site">Open source (GPL v3) · built on the ESP8266 ·
+<a href="https://github.com/g0urav2410/clockwise-smart-clock">source on GitHub</a></footer>
+
+</body>
+</html>

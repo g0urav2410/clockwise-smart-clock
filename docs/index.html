@@ -3,64 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clockwise — smart clock firmware</title>
-<meta name="description" content="Turn an Ajanta OLC-501 wall clock into a local smart clock. Flash it from your browser — no tools needed.">
-<style>
-  :root{
-    --bg:#0b0d12; --panel:#141822; --panel2:#1b202c; --line:#252c3a;
-    --fg:#eef1f7; --muted:#98a1b2; --accent:#22d3ee; --accent2:#34d399; --warn:#fb7185;
-    --seg:#f4f6ff;
-  }
-  @media (prefers-color-scheme: light){
-    :root{--bg:#f4f6fb;--panel:#fff;--panel2:#f0f3f9;--line:#e2e7f0;--fg:#101422;--muted:#5a6478;--seg:#0c1830}
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0}
-  body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:860px;margin:0 auto;padding:0 20px}
-  header{text-align:center;padding:64px 20px 34px}
-  .logo{display:inline-flex;gap:10px;align-items:center;font-weight:800;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
-  .logo .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
-  h1{font-size:clamp(34px,7vw,58px);margin:18px 0 10px;letter-spacing:-.02em;line-height:1.05}
-  .sub{font-size:clamp(16px,2.4vw,20px);color:var(--muted);max-width:560px;margin:0 auto}
-  /* faux 7-seg clock */
-  .clock{margin:34px auto 6px;max-width:340px;background:radial-gradient(120% 120% at 50% 0%,#14161c 0,#050608 80%);border:1px solid var(--line);border-radius:16px;padding:26px 20px;display:flex;align-items:center;justify-content:center;gap:14px}
-  .clock .d{font-family:"DSEG7","Consolas",ui-monospace,monospace;font-weight:700;font-size:64px;color:var(--seg);text-shadow:0 0 16px rgba(230,238,255,.35)}
-  .clock .c{display:flex;flex-direction:column;gap:16px}
-  .clock .c i{width:11px;height:11px;border-radius:50%;background:var(--seg);box-shadow:0 0 12px rgba(230,238,255,.5);animation:blink 2s steps(1) infinite}
-  @keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:.12}}
-  /* flash card */
-  .flash{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:18px;padding:28px;margin:38px 0;text-align:center}
-  .flash h2{margin:0 0 6px;font-size:22px}
-  .flash p{color:var(--muted);margin:0 auto 18px;max-width:520px;font-size:14.5px}
-  esp-web-install-button{--esp-tools-button-color:#04121a;--esp-tools-button-background-color:var(--accent)}
-  .btn{display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:#04121a;font-weight:700;font-size:16px;border:none;border-radius:12px;padding:14px 26px;cursor:pointer;text-decoration:none}
-  .note{font-size:12.5px;color:var(--muted);margin-top:16px}
-  .note b{color:var(--fg)}
-  .unsupported{display:none;background:rgba(251,113,133,.12);color:var(--warn);border:1px solid rgba(251,113,133,.3);border-radius:10px;padding:10px 14px;font-size:13px;margin-top:14px}
-  /* features */
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:30px 0}
-  .feat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
-  .feat .ic{font-size:22px}
-  .feat h3{margin:8px 0 4px;font-size:16px}
-  .feat p{margin:0;color:var(--muted);font-size:13.5px}
-  .links{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:8px 0 20px}
-  .links a{color:var(--accent);text-decoration:none;font-weight:600;font-size:14.5px;border:1px solid var(--line);padding:9px 16px;border-radius:10px}
-  .steps{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px 24px;margin:20px 0}
-  .steps li{margin:12px 0;color:var(--fg)}
-  .steps li span{color:var(--muted);font-size:13.5px}
-  footer{text-align:center;color:var(--muted);font-size:13px;padding:40px 20px 60px;border-top:1px solid var(--line);margin-top:40px}
-  h2.section{text-align:center;font-size:24px;margin:44px 0 4px}
-</style>
+<title>Clockwise — a smart brain for a 7-segment wall clock</title>
+<meta name="description" content="Open-source firmware, phone app, and Home Assistant integration that turn a 7-segment wall clock into a local smart clock. Flash it from your browser — no tools needed.">
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<header>
-  <div class="logo"><span class="dot"></span> Clockwise</div>
-  <h1>Your old wall clock,<br>made smart.</h1>
-  <p class="sub">A local-first smart-clock brain for the Ajanta OLC-501. Automatic
-  time, adaptive brightness, presence sensing, a phone app, and Home Assistant —
-  no cloud.</p>
-  <div class="clock">
+
+<div class="nav"><div class="row">
+  <a class="brand" href="index.html"><span class="dot"></span> Clockwise</a>
+  <nav>
+    <a href="#flash">Flash</a>
+    <a href="#features">Features</a>
+    <a href="docs.html">Docs</a>
+    <a class="gh" href="https://github.com/g0urav2410/clockwise-smart-clock">GitHub</a>
+  </nav>
+</div></div>
+
+<header class="hero">
+  <h1>Turn a 7-segment wall clock<br>into a smart clock.</h1>
+  <p class="sub">Open-source firmware, a phone app, and Home Assistant integration
+  for an ESP-based clock — automatic time, adaptive brightness, and presence
+  sensing, all running <b>locally</b>. Built and proven on the Ajanta OLC-501,
+  and adaptable to similar displays.</p>
+  <div class="clock" aria-hidden="true">
     <span class="d">10</span>
     <span class="c"><i></i><i></i></span>
     <span class="d">45</span>
@@ -69,48 +34,77 @@
 
 <div class="wrap">
 
-  <div class="flash">
+  <!-- FLASH -->
+  <div class="flash" id="flash">
     <h2>⚡ Flash it from your browser</h2>
-    <p>No PlatformIO, no drivers to wrestle. Plug the D1 Mini into your computer
-    with a USB cable and click connect. Takes about a minute.</p>
-    <esp-web-install-button manifest="./manifest.json">
+    <p>No toolchain, no drivers to wrestle. Plug your board into your computer with
+    a USB cable, pick it below, and click connect. About a minute, start to finish.</p>
+
+    <div class="board">
+      <label for="board">Your board</label>
+      <select id="board" aria-label="Choose your board">
+        <option value="manifest.json" data-chip="ESP8266">Wemos D1 Mini (ESP8266)</option>
+        <!-- More boards will be added here as their firmware lands. -->
+      </select>
+    </div>
+    <br>
+    <esp-web-install-button id="installer" manifest="manifest.json">
       <button class="btn" slot="activate">⚡ Flash to your clock</button>
-      <span slot="unsupported" class="unsupported">Your browser can't flash — use desktop <b>Chrome</b> or <b>Edge</b>.</span>
-      <span slot="not-allowed" class="unsupported">You need to allow the serial port to continue.</span>
+      <span slot="unsupported" class="unsupported">Your browser can't flash — please use desktop <b>Chrome</b> or <b>Edge</b>.</span>
+      <span slot="not-allowed" class="unsupported">You'll need to allow access to the serial port to continue.</span>
     </esp-web-install-button>
-    <div class="note"><b>Works on desktop Chrome or Edge only</b> (they support Web Serial). After flashing, connect to the <b>Clockwise-Setup</b> WiFi the clock creates to finish setup.</div>
+
+    <div class="note"><b>Desktop Chrome or Edge only</b> (they support Web Serial).
+    After flashing, connect to the <b>Clockwise-Setup</b> WiFi the clock creates to
+    finish setup. Prefer the command line? <a href="https://github.com/g0urav2410/clockwise-smart-clock/tree/master/firmware">Build it with PlatformIO</a>.</div>
   </div>
 
-  <h2 class="section">What it does</h2>
+  <!-- FEATURES -->
+  <h2 class="section-t" id="features">What it does</h2>
   <div class="grid">
-    <div class="feat"><div class="ic">🕐</div><h3>Always-right time</h3><p>WiFi + NTP with an RTC backup through power cuts. Handles daylight saving itself.</p></div>
-    <div class="feat"><div class="ic">🔆</div><h3>Adaptive brightness</h3><p>Manual, day/night schedule, or a Sun mode that ramps with real sunrise & sunset.</p></div>
-    <div class="feat"><div class="ic">👋</div><h3>Presence sensing</h3><p>A 24 GHz mmWave radar detects presence and distance, and can dim when the room's empty.</p></div>
-    <div class="feat"><div class="ic">📱</div><h3>Phone app</h3><p>An Android app auto-discovers the clock for full control and sensor tuning.</p></div>
-    <div class="feat"><div class="ic">🏠</div><h3>Home Assistant</h3><p>MQTT auto-discovery builds the whole device, plus a custom clock-face card.</p></div>
-    <div class="feat"><div class="ic">🔒</div><h3>Local & secure</h3><p>Runs entirely on the clock. PIN-protected API and authenticated OTA updates.</p></div>
+    <div class="feat"><div class="ic">🕐</div><h3>Always-right time</h3><p>WiFi + NTP with a real-time-clock backup through power cuts. Handles daylight saving itself.</p></div>
+    <div class="feat"><div class="ic">🔆</div><h3>Adaptive brightness</h3><p>Manual, a day/night schedule, or a Sun mode that ramps with real sunrise &amp; sunset for your location.</p></div>
+    <div class="feat"><div class="ic">👋</div><h3>Presence sensing</h3><p>An optional 24 GHz mmWave radar detects presence and distance, and can dim the display when the room's empty.</p></div>
+    <div class="feat"><div class="ic">📱</div><h3>Phone app</h3><p>An Android app auto-discovers the clock on your network for full control and sensor tuning.</p></div>
+    <div class="feat"><div class="ic">🏠</div><h3>Home Assistant</h3><p>MQTT auto-discovery builds the whole device automatically, plus a custom clock-face card.</p></div>
+    <div class="feat"><div class="ic">🔒</div><h3>Local &amp; secure</h3><p>Runs entirely on the clock — no cloud. PIN-protected API and authenticated over-the-air updates.</p></div>
   </div>
 
-  <h2 class="section">After flashing</h2>
-  <ol class="steps">
-    <li>Connect to the <b>Clockwise-Setup</b> WiFi network the clock broadcasts.<br><span>A setup page opens automatically.</span></li>
+  <!-- AFTER FLASHING -->
+  <h2 class="section-t">After flashing</h2>
+  <ol class="steps card">
+    <li>Connect to the <b>Clockwise-Setup</b> WiFi the clock broadcasts.<br><span>A setup page opens automatically.</span></li>
     <li>Pick your home WiFi, enter its password, set an optional PIN.<br><span>Your timezone is detected in the browser.</span></li>
-    <li>Install the app or add it to Home Assistant — and you're done.</li>
+    <li>Install the app, or add it to Home Assistant — and you're done.</li>
   </ol>
 
-  <div class="links">
-    <a href="https://github.com/g0urav2410/clockwise-smart-clock">📦 Source & docs</a>
-    <a href="https://github.com/g0urav2410/clockwise-smart-clock/blob/master/MANUAL.md">📖 Manual</a>
-    <a href="https://github.com/g0urav2410/clockwise-smart-clock/tree/master/homeassistant">🏠 Home Assistant</a>
+  <!-- DOCS -->
+  <h2 class="section-t">Docs &amp; guides</h2>
+  <p class="lede">Full manual, Home Assistant setup, and the hardware notes — all on the site.</p>
+  <div class="linkrow">
+    <a href="docs.html">📚 All documentation</a>
+    <a href="manual.html">📖 Manual</a>
+    <a href="home-assistant.html">🏠 Home Assistant</a>
+    <a href="https://github.com/g0urav2410/clockwise-smart-clock">📦 Source</a>
   </div>
+
+  <!-- ADAPT -->
+  <h2 class="section-t">Using a different clock or board?</h2>
+  <p class="lede" style="max-width:600px">Clockwise is built for the Ajanta OLC-501, but the firmware, app, and
+  Home Assistant pieces are a clean reference for any ESP 7-segment clock. Support
+  for more boards is planned — the flasher above is built to add them.</p>
 
 </div>
 
-<footer>
-  Open source (GPL v3). Built on an ESP8266. "Ajanta OLC-501" is a hardware
-  descriptor only, not affiliated.
-</footer>
+<footer class="site">Open source (GPL v3) · built on the ESP8266 ·
+<a href="https://github.com/g0urav2410/clockwise-smart-clock">source on GitHub</a><br>
+<span style="color:var(--faint)">"Ajanta OLC-501" is a hardware descriptor only — not affiliated.</span></footer>
 
+<script>
+  // Board selector -> point the installer at the chosen board's manifest.
+  var sel = document.getElementById('board'), inst = document.getElementById('installer');
+  if (sel && inst) sel.addEventListener('change', function(){ inst.setAttribute('manifest', sel.value); });
+</script>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
 </body>
 </html>

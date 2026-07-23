@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Assistant — Clockwise</title>
+<meta name="description" content="Add the clock to Home Assistant and install the clock-face card.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<div class="nav"><div class="row">
+  <a class="brand" href="index.html"><span class="dot"></span> Clockwise</a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="index.html#flash">Flash</a>
+    <a href="docs.html">Docs</a>
+    <a class="gh" href="https://github.com/g0urav2410/clockwise-smart-clock">GitHub</a>
+  </nav>
+</div></div>
+
+<article class="doc">
+<a class="back" href="docs.html">← All docs</a>
+<h1 id="clockwise-home-assistant">Clockwise + Home Assistant</h1>
+<p>The clock speaks MQTT with <strong>auto-discovery</strong>, so Home Assistant builds the
+whole device by itself — no YAML for the entities. This folder adds an optional
+custom <strong>card</strong> that recreates the clock's 7-segment face with live data and
+controls.</p>
+<blockquote>
+<p><code>clock_helpers.yaml</code> here is the <strong>old</strong> manual-helper approach and is now
+<strong>superseded</strong> by auto-discovery — you don't need it. Kept only for reference.</p>
+</blockquote>
+<hr>
+<h2 id="1-one-time-setup">1. One-time setup</h2>
+<ol>
+<li><strong>Broker</strong> — install the <strong>Mosquitto broker</strong> add-on in HA
+   (Settings → Add-ons → Add-on store → Mosquitto broker → Install → Start).</li>
+<li><strong>MQTT integration</strong> — Settings → Devices &amp; Services → Add → <strong>MQTT</strong>
+   (it usually auto-detects Mosquitto; accept the defaults).</li>
+<li><strong>Point the clock at it</strong> — in the Clockwise app: Settings → Advanced → MQTT
+   → enter Home Assistant's <strong>IP address</strong>, port <strong>1883</strong>, and the Mosquitto
+   username/password if you set one → Save.</li>
+</ol>
+<p>Within a few seconds a <strong>Clockwise</strong> device appears under
+Settings → Devices &amp; Services → MQTT, with all the entities:</p>
+<table>
+<thead>
+<tr>
+<th>Entity</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>binary_sensor.clockwise_presence</code> / <code>_moving</code> / <code>_still</code></td>
+<td>radar</td>
+</tr>
+<tr>
+<td><code>sensor.clockwise_distance</code></td>
+<td>metres</td>
+</tr>
+<tr>
+<td><code>number.clockwise_brightness</code></td>
+<td>0–100</td>
+</tr>
+<tr>
+<td><code>select.clockwise_mode</code></td>
+<td>manual / schedule / sun</td>
+</tr>
+<tr>
+<td><code>switch.clockwise_logo</code> / <code>_dim</code></td>
+<td>logo LED, dim-when-empty</td>
+</tr>
+<tr>
+<td><code>button.clockwise_sync</code> / <code>_reboot</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>sensor.clockwise_rssi</code> / <code>_uptime</code> / <code>_freeheap</code> / <code>_resetreason</code> / <code>_online</code></td>
+<td>diagnostics</td>
+</tr>
+<tr>
+<td><code>sensor.clockwise_time</code> / <code>_date</code> / <code>_dow</code></td>
+<td>what the display shows (for the card)</td>
+</tr>
+</tbody>
+</table>
+<p>That alone is enough to use the clock in automations and a normal dashboard.</p>
+<hr>
+<h2 id="2-the-clock-face-card-optional-but-nice">2. The clock-face card (optional but nice)</h2>
+<p>Recreates the real display — days column, live time (colon blinks 1s on / 1s
+off like the real clock), red logo dot, amber bar, D/M/Y — with the controls
+tucked below. A <strong>connection dot</strong> (green Connected / red Offline) reflects HA
+reachability via the <code>online</code> entity, and the Sync/Reboot buttons flash a brief
+confirmation when tapped.</p>
+<ol>
+<li>Copy <strong><code>clockwise-card.js</code></strong> into your HA config's <strong><code>www/</code></strong> folder
+   (so it's at <code>&lt;config&gt;/www/clockwise-card.js</code>). Create <code>www/</code> if missing.</li>
+<li><strong>Register it:</strong> Settings → Dashboards → (top-right ⋮) → <strong>Resources</strong> →
+   <strong>Add Resource</strong>
+   - URL: <code>/local/clockwise-card.js</code>
+   - Type: <strong>JavaScript Module</strong>
+   (If you don't see "Resources", enable Advanced Mode on your user profile.)</li>
+<li><strong>Add the card</strong> to any dashboard (Edit dashboard → Add Card → bottom:
+   "Manual"), with:
+   <code>yaml
+   type: custom:clockwise-card</code>
+   That's it — no other config in the common case.</li>
+</ol>
+<h3 id="if-the-entities-arent-found">If the entities aren't found</h3>
+<p>The card <strong>auto-detects</strong> the entity names, so it works even if your device was
+renamed (e.g. entities are <code>testing_unit_displayed_time</code> instead of
+<code>clockwise_time</code>). It finds the set with a live time value and matches both the
+short keys and HA's longer display-name slugs (<code>displayed_time</code>, <code>day_of_week</code>,
+<code>logo_led</code>, <code>dim_when_empty</code>, <code>wifi_signal</code>). No config needed in the normal case.</p>
+<p>If you run <strong>two clocks</strong> and want to pin the card to a specific one, set the
+prefix (the part of the entity_id between the domain and the last word):</p>
+<pre><code class="language-yaml">type: custom:clockwise-card
+prefix: clockwise        # e.g. number.clockwise_brightness
+</code></pre>
+<p>Check an entity's exact id under Settings → Devices &amp; Services → Entities.</p>
+<blockquote>
+<p><strong>Cache tip:</strong> after editing the card file, HA serves the old cached copy.
+Bump the resource URL (<code>/local/clockwise-card.js?v=2</code>, then <code>?v=3</code>…) and do a
+hard refresh (<code>Ctrl+Shift+R</code>).</p>
+</blockquote>
+<hr>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>The card is self-contained (no HACS needed) and updates live as the clock
+  publishes — the time stays in sync with the physical display.</li>
+<li>Everything degrades gracefully: if the broker is down, the clock keeps running
+  its last settings; the HA device just shows unavailable until it's back.</li>
+<li>The raw 32 energy gates and per-gate thresholds are <strong>not</strong> exposed to HA on
+  purpose (they'd be noisy) — tune those in the app. HA gets the useful signals.</li>
+</ul>
+</article>
+
+<footer class="site">Open source (GPL v3) · built on the ESP8266 ·
+<a href="https://github.com/g0urav2410/clockwise-smart-clock">source on GitHub</a></footer>
+
+</body>
+</html>

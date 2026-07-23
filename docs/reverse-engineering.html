@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reverse engineering — Clockwise</title>
+<meta name="description" content="How the original display was decoded and driven.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<div class="nav"><div class="row">
+  <a class="brand" href="index.html"><span class="dot"></span> Clockwise</a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="index.html#flash">Flash</a>
+    <a href="docs.html">Docs</a>
+    <a class="gh" href="https://github.com/g0urav2410/clockwise-smart-clock">GitHub</a>
+  </nav>
+</div></div>
+
+<article class="doc">
+<a class="back" href="docs.html">← All docs</a>
+<h1 id="ajanta-clock-full-display-takeover-option-a">Ajanta Clock — Full Display Takeover (Option A)</h1>
+<p>Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
+chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
+presence. Original clock MCU is disconnected from the display lines (can stay
+physically on the board, just cut from data/clock/latch).</p>
+<p>No more I2C two-master collision because the original MCU no longer owns anything.</p>
+<hr>
+<h2 id="hardware-chain">Hardware chain</h2>
+<p>7 × TC5020EJ (SSOP-24), 16 outputs each = <strong>112 total outputs</strong>.
+Daisy-chained shift registers:</p>
+<pre><code>ESP SDI → [chip1 SDI  SDO] → [chip2 SDI  SDO] → ... → [chip7 SDI  SDO](unused)
+ESP CLK → common to all 7 chips
+ESP LE  → common to all 7 chips
+ESP OE  → common to all 7 chips (already wired to D5, PWM brightness)
+</code></pre>
+<p>To show a frame: shift out 112 bits (chip7 data first ... chip1 data last,
+because chip1 is closest to SDI and data ripples through), then pulse LE.</p>
+<p><strong>Bit order to confirm during mapping</strong> — we discover it empirically with the
+walking-bit test, so don't assume MSB/LSB or chip order yet.</p>
+<hr>
+<h2 id="tc5020ej-pinout-ssop-24-confirmed-from-real-datasheet-fm-v10-2021">TC5020EJ pinout (SSOP-24) — CONFIRMED from real datasheet (FM, v1.0 2021)</h2>
+<table>
+<thead>
+<tr>
+<th>Pin</th>
+<th>Signal</th>
+<th>Pin</th>
+<th>Signal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>GND</td>
+<td>13</td>
+<td>OUT8</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>SDI</strong> in</td>
+<td>14</td>
+<td>OUT9</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>CLK</strong> (rising edge)</td>
+<td>15</td>
+<td>OUT10</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>LE</strong> latch</td>
+<td>16</td>
+<td>OUT11</td>
+</tr>
+<tr>
+<td>5</td>
+<td>OUT0</td>
+<td>17</td>
+<td>OUT12</td>
+</tr>
+<tr>
+<td>6</td>
+<td>OUT1</td>
+<td>18</td>
+<td>OUT13</td>
+</tr>
+<tr>
+<td>7</td>
+<td>OUT2</td>
+<td>19</td>
+<td>OUT14</td>
+</tr>
+<tr>
+<td>8</td>
+<td>OUT3</td>
+<td>20</td>
+<td>OUT15</td>
+</tr>
+<tr>
+<td>9</td>
+<td>OUT4</td>
+<td>21</td>
+<td><strong>OE</strong> active-LOW</td>
+</tr>
+<tr>
+<td>10</td>
+<td>OUT5</td>
+<td>22</td>
+<td><strong>SDO</strong> out</td>
+</tr>
+<tr>
+<td>11</td>
+<td>OUT6</td>
+<td>23</td>
+<td>REXT</td>
+</tr>
+<tr>
+<td>12</td>
+<td>OUT7</td>
+<td>24</td>
+<td>VDD</td>
+</tr>
+</tbody>
+</table>
+<p>Chain: chipN SDO(22) → chipN+1 SDI(2). CLK(3), LE(4), OE(21) all common.
+First chip = the one whose SDI(2) comes from the original MCU, not from
+another chip's SDO(22).</p>
+<p>LE behaviour (from truth table): LE HIGH = shift register transparent to
+outputs; LE LOW = latched/held. So: shift 112 bits with LE low, pulse LE
+high then low to latch. (tc_chain_test.ino already does this.)
+CLK: data shifts on RISING edge.</p>
+<h2 id="pins-esp8266-nodemcu-draft-confirm-pin-budget">Pins (ESP8266 NodeMCU) — DRAFT, confirm pin budget</h2>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>NodeMCU</th>
+<th>GPIO</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OE (bright)</td>
+<td>D5</td>
+<td>14</td>
+<td>already wired, PWM active-LOW</td>
+</tr>
+<tr>
+<td>SDI (data)</td>
+<td>D7</td>
+<td>13</td>
+<td>to first chip SDI</td>
+</tr>
+<tr>
+<td>CLK (clock)</td>
+<td>D6</td>
+<td>12</td>
+<td>common clock</td>
+</tr>
+<tr>
+<td>LE (latch)</td>
+<td>D8</td>
+<td>15</td>
+<td>common latch (has pulldown, ok)</td>
+</tr>
+<tr>
+<td>Sensor RX</td>
+<td>D2</td>
+<td>4</td>
+<td>mmWave TX → here (RTC freed it)</td>
+</tr>
+<tr>
+<td>Sensor TX</td>
+<td>D1</td>
+<td>5</td>
+<td>mmWave RX ← here</td>
+</tr>
+<tr>
+<td>MOSFET(s)</td>
+<td>D3/D4/?</td>
+<td>0/2</td>
+<td>section power — count TBD</td>
+</tr>
+</tbody>
+</table>
+<p>⚠ Pin budget is tight on ESP8266. Need exact MOSFET count before finalizing.
+If too many MOSFETs, options: drive them via spare TC5020EJ outputs, or move to
+a chip with more GPIO.</p>
+<hr>
+<h2 id="step-by-step-plan">Step-by-step plan</h2>
+<ol>
+<li>
+<p><strong>Identify the 3 control lines into the chain</strong>
+   - On TC5020EJ: find SDI (serial data in), SDO (serial data out), CLK, LE, OE.
+   - OE confirmed = pin 21 (active LOW).
+   - Find chip #1 = the one whose SDI trace goes back to the original MCU
+     (not to another chip's SDO).
+   - Confirm CLK and LE are common across all 7 chips (probe continuity).</p>
+</li>
+<li>
+<p><strong>Cut the original MCU from SDI, CLK, LE.</strong> Leave MCU powered/alive; just
+   sever its control of the chain. Wire those 3 chip lines to ESP D7/D6/D8.</p>
+</li>
+<li>
+<p><strong>Walking-bit mapping</strong> (tc_chain_test.ino):
+   - Shift a single <code>1</code> through positions 0..111, one at a time, ~1s each.
+   - You watch the clock face and tell me which segment lit for each position.
+   - We build a position → (digit, segment) table.</p>
+</li>
+<li>
+<p><strong>Build the font map</strong> — from the segment table, define which output bits
+   form each digit 0-9 in each display position.</p>
+</li>
+<li>
+<p><strong>Render firmware</strong> — ESP keeps NTP time, renders HH:MM (+date, day, colon),
+   applies brightness via OE PWM, dims/wakes from mmWave presence.</p>
+</li>
+<li>
+<p><strong>Section MOSFETs</strong> — map which MOSFET powers which display block, drive
+   from ESP.</p>
+</li>
+</ol>
+<hr>
+<h2 id="found-control-lines-traced-to-original-mcu">FOUND — control lines traced to original MCU</h2>
+<p>Chip #1 = the chip whose SDI (pin 2) goes to the original MCU. CONFIRMED.</p>
+<table>
+<thead>
+<tr>
+<th>Chip #1 pin</th>
+<th>Signal</th>
+<th>→ Original MCU pin</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pin 2</td>
+<td>SDI (data)</td>
+<td>MCU pin 8</td>
+<td>CUT, wire ESP D7</td>
+</tr>
+<tr>
+<td>Pin 3</td>
+<td>CLK (clock)</td>
+<td>MCU pin 17</td>
+<td>CUT, wire ESP D6</td>
+</tr>
+<tr>
+<td>Pin 4</td>
+<td>LE (latch)</td>
+<td>MCU pin 3</td>
+<td>CUT, wire ESP D8</td>
+</tr>
+</tbody>
+</table>
+<p>CLK (pin 3) and LE (pin 4) confirmed SHARED across all 7 chips.</p>
+<p>Cut these 3 traces between the MCU and the chain, then wire ESP in their place.
+Original MCU stays powered, just severed from the display.</p>
+<h2 id="pre-desolder-checklist-capture-while-mcu-is-alive">PRE-DESOLDER CHECKLIST — capture while MCU is ALIVE</h2>
+<p>Once the MCU is desoldered we lose: live signals, original display behaviour,
+and the "which MCU pin does what" reference. Capture all of this FIRST.</p>
+<h3 id="p1-only-knowable-with-mcu-running">P1 — only knowable with MCU running</h3>
+<ul>
+<li>[x] Static vs multiplexed? → <strong>STATIC, CONFIRMED</strong>
+      Proof: OE PWM gave smooth uniform brightness across the WHOLE display.
+      Multiplexed would fight the scan (flicker/uneven). Clean global dimming
+      = every segment driven continuously = static direct drive.
+      → Section MOSFETs are brightness/blanking gates, NOT scan rows.
+      → Display content: day-of-week, time, date, month, year.</li>
+<li>[ ] Logic-analyzer capture of SDI + CLK + LE + OE (one full refresh) — gives
+      bit order, refresh rate, frame size</li>
+<li>[ ] Watch each section MOSFET gate: does it switch fast (mux row) or stay
+      on/PWM (brightness/blank)?</li>
+<li>[ ] Photograph the clock showing a KNOWN time (e.g. 12:34) — reference for
+      decoding which segments = which digit later</li>
+</ul>
+<h3 id="p1b-logic-level-check-done-no-shifter-needed">P1b — LOGIC LEVEL CHECK → DONE, no shifter needed</h3>
+<p>TC5020EJ VDD measured 3.3V (full bright) up to ~4V (dim). Never 5V.
+The swing is just the shared rail sagging under LED load (PWM brightness).
+Input-high threshold ~0.7*VDD = 2.3V..2.8V. ESP outputs 3.3V, safely above
+in all cases → ESP drives SDI/CLK/LE directly. NO level shifter required.</p>
+<h3 id="power-tree-map-all-rails-before-adding-esp-as-a-load">POWER TREE — map all rails before adding ESP as a load</h3>
+<p>Both 5V and 3.3V rails sag under load, so know the whole tree first.
+Measure each rail at TWO states: display DIM (light load) and FULL bright (heavy).</p>
+<table>
+<thead>
+<tr>
+<th>Rail</th>
+<th>Source</th>
+<th>V (dim)</th>
+<th>V (full)</th>
+<th>Powers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Input jack (5V)</td>
+<td>adapter</td>
+<td>___</td>
+<td>___</td>
+<td>LM1117 in, divider LEDs, ?</td>
+</tr>
+<tr>
+<td>LM1117 out(3.3)</td>
+<td>LM1117 tab</td>
+<td>___</td>
+<td>___</td>
+<td>MCU, RTC, TC5020EJ VDD?, ?</td>
+</tr>
+<tr>
+<td>Chain VDD</td>
+<td>FET B rail</td>
+<td>~4V</td>
+<td>~3.3V</td>
+<td>TC5020EJ pin24 + LED anodes</td>
+</tr>
+<tr>
+<td>Divider LEDs</td>
+<td>5V via FET A</td>
+<td>___</td>
+<td>___</td>
+<td>dividing line LEDs</td>
+</tr>
+</tbody>
+</table>
+<p>To fill in:
+- [ ] Jack + to GND: V at dim vs full bright
+- [ ] LM1117 TAB (output) to GND: V  (small side pins mislead — use the tab)
+- [ ] Continuity: LM1117 tab -&gt; which chips? (MCU VDD, RTC pin3, TC5020 pin24)
+- [ ] Is chain VDD (FET B) fed from LM1117 3.3V or from 5V? (trace FET B source)</p>
+<h3 id="esp-power-do-not-hang-on-the-sagging-33v-logic-rail">ESP POWER — do NOT hang on the sagging 3.3V logic rail</h3>
+<p>ESP8266 pulls ~300mA spikes on WiFi TX -&gt; would brown out a soft rail.
+Plan: tap raw input jack -&gt; NodeMCU <strong>Vin</strong> (its own onboard reg makes clean
+3.3V, isolated). Shared GND mandatory. During dev, just use USB.</p>
+<h3 id="power-tree-resolved">POWER TREE — RESOLVED</h3>
+<p>Key data: at low brightness, RTC and driver ICs read the SAME ~3.97V -&gt; same rail.
+That shared rail = LM1117 output.
+  5V input (sags to 4V) -&gt; LM1117 -&gt; LOGIC RAIL 3.3-4V -&gt; RTC + 7 drivers + MCU
+  5V input -&gt; directly -&gt; divider LEDs + LED anodes (current-hungry stuff)
+Rail moves 3.97V(dim)-&gt;3.3V(bright) because input sags under LED load and the
+regulator output follows it. Not broken — just a soft input.</p>
+<p>I2C level fix: RTC sits on ~4V rail -&gt; its pull-ups would put 4V on the bus
+(&gt;ESP 3.6V max). FIX: source the two I2C pull-ups from the ESP's own 3.3V pin.
+I2C is open-drain (RTC only pulls LOW), so pull-up voltage sets the high level
+= 3.3V, ESP-safe. RTC still reads 3.3V fine (its VIH ~2.8V). No need to move
+RTC VDD.</p>
+<h3 id="power-investigation-closed-enough-known">POWER INVESTIGATION — CLOSED (enough known)</h3>
+<ul>
+<li>Onboard LM1117 (adj, feedback R = 100R + 330R). Exact rail topology not
+  fully resolved from in-circuit readings — and doesn't need to be.</li>
+<li>What matters &amp; is confirmed: input ~5V (sags to 4V under load), common GND,
+  chain runs 3.3-4V, ESP 3.3V logic is valid, ESP powers from Vin.</li>
+<li>⚠ Input already sags 1V under clock's own load. Check adapter A rating before
+  hanging ESP on it. Safest: separate USB or a beefier adapter.</li>
+<li>STOP in-circuit resistance probing — parallel paths give false values.
+  Use VOLTAGE comparisons if more mapping ever needed.</li>
+</ul>
+<h3 id="p2-mcu-pinout-reference-lost-after-desolder">P2 — MCU pinout reference (lost after desolder)</h3>
+<ul>
+<li>[ ] Map EVERY MCU pin -&gt; what it connects to. Confirmed so far:
+        MCU pin 3  -&gt; chip#1 LE  (pin 4)
+        MCU pin 8  -&gt; chip#1 SDI (pin 2)
+        MCU pin 17 -&gt; chip#1 CLK (pin 3)</li>
+<li>[ ] MCU pins -&gt; section MOSFET gates (which pin drives which MOSFET)</li>
+</ul>
+<h3 id="mosfet-map-4-total">MOSFET map (4 total)</h3>
+<table>
+<thead>
+<tr>
+<th>FET</th>
+<th>Controls</th>
+<th>Powers IC VDD?</th>
+<th>ESP action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>dividing line (separate 5V, not on chain)</td>
+<td>no</td>
+<td>PWM from ESP</td>
+</tr>
+<tr>
+<td>B</td>
+<td>time + seconds + logo + <strong>TC5020EJ VDD(24)</strong></td>
+<td><strong>YES</strong></td>
+<td>HARDWIRE ON, never PWM</td>
+</tr>
+<tr>
+<td>C</td>
+<td>date + days section</td>
+<td>? (check)</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>D</td>
+<td>CR (colon / blink)</td>
+<td>? (check)</td>
+<td>ESP drive (blink)</td>
+</tr>
+</tbody>
+</table>
+<p>Rule: FETs that feed the chain / IC VDD = hardwire ON, brightness via OE.
+Only separately-powered stuff (divider, colon, seconds) gets its own ESP drive.</p>
+<p>Day-of-week: each day word = 2 LEDs, one on TIME rail (FET B), one on DATE
+rail (FET C). Both FETs ON = days work. No special handling.
+CR (FET D): toggling showed nothing notable. Colon is actually powered by the
+TIME rail (FET B), not CR. CR function still unknown — revisit later.
+COLON: anode on FET B rail (always powered), but CATHODE switched directly by
+an MCU GPIO (ground-side blink control) — NOT on the chain. ESP must drive the
+colon cathode after MCU removal (pull LOW = lit, release = off). Needs 1 pin.
+  - MCU pin driving colon cathode = <strong>MCU pin 4, ACTIVE LOW</strong> (LOW=colon on)
+  - Sink current low enough for direct ESP GPIO, or need transistor? -&gt; TBD</p>
+<h3 id="consolidated-drive-plan-post-desolder-static-display">CONSOLIDATED DRIVE PLAN (post-desolder, static display)</h3>
+<p>Hardwire ON (no ESP pin):
+  - FET B (time + seconds anode + logo + TC5020EJ VDD)
+  - FET C (date + month + year + day-LED #2)</p>
+<p>ESP drives:
+  | Signal        | NodeMCU | GPIO | Notes                              |
+  |---------------|---------|------|------------------------------------|
+  | OE brightness | D5      | 14   | PWM, global chain brightness       |
+  | CLK           | D6      | 12   | chain clock                        |
+  | SDI           | D7      | 13   | chain data (chip#1 pin2)           |
+  | LE            | D8      | 15   | chain latch                        |
+  | Divider PWM   | D3      | 0    | separate 5V, PWM to match brightness |
+  | Seconds blink | D4      | 2    | via S9015, toggle 1Hz              |
+  | Sensor RX     | D1      | 5    | mmWave TX -&gt; here (SoftwareSerial) |
+  | Sensor TX     | D2      | 4    | mmWave RX &lt;- here                  |
+  | (spare)       | D0      | 16   | colon/CR on-off if needed          |</p>
+<h3 id="rtc-kept-as-battery-backed-fallback">RTC — KEPT as battery-backed fallback</h3>
+<p>Once MCU is desoldered, ESP is the ONLY I2C master → NO collision, ever.
+The entire "write FAILED" saga was the original MCU fighting us. Gone now.
+  - Network up  -&gt; ESP syncs SD3078 from NTP
+  - Power/net down -&gt; ESP reads time from SD3078 on boot, display correct instantly
+  - RTC keeps time on its VBAT battery through outages</p>
+<h3 id="pin-budget-with-rtc-back-in-tight-needs-2-freed">PIN BUDGET (with RTC back in) — TIGHT, needs 2 freed</h3>
+<p>Everything wanted: chain(4) + divider PWM(1) + colon(1) + seconds(1) +
+sensor RX/TX(2) + RTC SDA/SCL(2) = 11. ESP8266 has only 9 usable. Over by 2.</p>
+<p>FREE 2 PINS — two easy wins:
+  1. Reroute COLON + SECONDS cathodes to SPARE TC5020EJ chain outputs.
+     112 outputs exist; display likely uses fewer -&gt; spares probably available.
+     Confirm during walking-bit map. If spares exist, colon+seconds become
+     data bits (no ESP pin) -&gt; frees 2 pins. THIS IS THE CLEAN FIX.
+  2. (fallback) Sensor RX-only: we just read presence frames, never send config
+     at runtime -&gt; 1 pin instead of 2. Frees 1.</p>
+<p>Target pin map IF colon+seconds move to chain:
+  | Signal        | NodeMCU | GPIO | PWM? |
+  |---------------|---------|------|------|
+  | OE brightness | D5      | 14   | yes  |
+  | CLK           | D6      | 12   |      |
+  | SDI           | D7      | 13   |      |
+  | LE            | D8      | 15   |      |
+  | Divider PWM   | D3      | 0    | yes  |
+  | RTC SDA       | D2      | 4    |      |
+  | RTC SCL       | D1      | 5    |      |
+  | Sensor RX     | D4      | 2    |      | (SoftwareSerial, RX only)
+  | (spare)       | D0      | 16   |      |
+  → 8 pins, one spare. Comfortable. Colon+seconds = chain outputs.
+- [ ] MCU pins -&gt; RTC SDA/SCL (the I2C pair)
+- [ ] MCU VDD &amp; GND pins
+- [ ] MCU pins -&gt; seconds LED / colon drive
+- [ ] MCU pins -&gt; any buttons / set switches</p>
+<h3 id="p3-can-also-do-after-desolder-esp-drives-chain">P3 — can also do AFTER desolder (ESP drives chain)</h3>
+<ul>
+<li>[ ] Chain order of all 7 chips (SDO pin22 -&gt; next SDI pin2)</li>
+<li>[ ] Walking-bit segment map (tc_chain_test.ino), positions 0..111</li>
+<li>[ ] REXT resistor value on each chip (sets LED current)</li>
+</ul>
+<h2 id="desolder-rewire-step-by-step">DESOLDER + REWIRE — step by step</h2>
+<h3 id="before-desoldering-capture-mcu-still-alive">Before desoldering (capture, MCU still alive)</h3>
+<ul>
+<li>[ ] Photo of display at a KNOWN time/date (reference for segment decoding)</li>
+<li>[ ] Trace + note MCU pin -&gt; colon cathode</li>
+<li>[ ] Confirm: is seconds also GPIO-cathode (like colon) or on the chain?</li>
+<li>[ ] Note MCU VDD &amp; GND pins (leave those rails/pads intact)</li>
+</ul>
+<h3 id="desolder">Desolder</h3>
+<ul>
+<li>[ ] Hot-air the original MCU off. Leave every other component in place.</li>
+<li>[ ] Clean the pads. MCU is fully out of the circuit now.</li>
+</ul>
+<h3 id="rewire-esp-chain-chip-1">Rewire ESP -&gt; chain (chip #1)</h3>
+<ul>
+<li>[ ] ESP D7 (GPIO13) -&gt; chip#1 pin 2  (SDI)</li>
+<li>[ ] ESP D6 (GPIO12) -&gt; chip#1 pin 3  (CLK)</li>
+<li>[ ] ESP D8 (GPIO15) -&gt; chip#1 pin 4  (LE)</li>
+<li>[ ] ESP D5 (GPIO14) -&gt; OE line        (already wired)</li>
+<li>[ ] ESP GND         -&gt; board GND       (common)</li>
+</ul>
+<h3 id="hardwire-section-power-on">Hardwire section power ON</h3>
+<ul>
+<li>[ ] FET B gate -&gt; tie to permanent-ON level (P-ch: gate to GND via pulldown,
+      or however it switches on). Powers TC5020EJ VDD + time/logo/colon/seconds.</li>
+<li>[ ] FET C gate -&gt; tie permanent-ON. Powers date/month/year + day-LED#2.</li>
+</ul>
+<h3 id="separate-drive-parts">Separate-drive parts</h3>
+<ul>
+<li>[ ] Divider line FET gate -&gt; ESP D3 (GPIO0)   [PWM, separate 5V]</li>
+<li>[ ] Colon cathode   -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
+<li>[ ] Seconds cathode -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
+</ul>
+<h3 id="rtc-esp-is-now-sole-i2c-master">RTC (ESP is now sole I2C master)</h3>
+<ul>
+<li>[ ] ESP D2 (GPIO4) -&gt; RTC SDA (pin 8)</li>
+<li>[ ] ESP D1 (GPIO5) -&gt; RTC SCL (pin 1)</li>
+<li>[ ] Remove the old 100ohm series resistors if they hinder (no MCU to isolate now)</li>
+</ul>
+<h3 id="best-rtc-wiring-power-rtc-from-d1-mini-3v3-cleanest">BEST RTC WIRING — power RTC from D1 Mini 3V3 (cleanest)</h3>
+<p>Board = Wemos D1 Mini (low-dropout reg ME6211/RT9013, works from ~3.6V in).
+Power the RTC entirely from the D1 Mini 3V3 pin -&gt; whole I2C bus is 3.3V by
+nature, perfect match, no level tricks, no 4V near the ESP.
+  - RTC VDD (pin3) -&gt; D1 Mini 3V3   (CUT from old 4V rail first!)
+  - RTC SDA (pin8) -&gt; D1 Mini D2 + 4.7k pull-up to 3V3
+  - RTC SCL (pin1) -&gt; D1 Mini D1 + 4.7k pull-up to 3V3
+  - RTC GND -&gt; common GND
+  - VBAT coin cell -&gt; leave as-is (keeps time through outages)
+  ⚠ Old on-board pull-ups: if they reference the 4V rail, MOVE them to 3V3 or
+    remove and use fresh 4.7k to 3V3. No 4V may touch the bus.
+  RTC draws only microamps -&gt; D1 Mini 3V3 supplies it easily.</p>
+<h3 id="esp-power-d1-mini-single-cord">ESP POWER (D1 Mini) — single cord</h3>
+<p>D1 Mini reg is LOW dropout (~0.3V), makes 3.3V from as low as ~3.6V input.
+Raw clock input (5V, sags to 4V) stays &gt;3.6V -&gt; feed it to D1 Mini "5V" pin.
+  - Raw input jack -&gt; D1 Mini 5V pin (NOT the internal 4V rail, that sags to 3.3)
+  - Shared GND
+  One wall adapter powers everything. Beefier adapter optional (stiffer rail).</p>
+<h3 id="mmwave-sensor">mmWave sensor</h3>
+<ul>
+<li>[ ] Sensor TX -&gt; ESP D4 (GPIO2)  [RX only, SoftwareSerial]</li>
+<li>[ ] Sensor GND -&gt; common GND</li>
+</ul>
+<h3 id="bring-up-sequence">Bring-up sequence</h3>
+<ul>
+<li>[ ] Flash tc_chain_test.ino -&gt; walk outputs 0..111, record segment map</li>
+<li>[ ] Map the USED outputs first: time digits, date, month, year, day words</li>
+<li>[ ] Whatever outputs are left = spares. THEN decide colon/seconds:
+        spare outputs available -&gt; reroute colon+seconds to chain (0 pins)
+        no spares               -&gt; keep colon+seconds on ESP GPIO pins</li>
+<li>[ ] Build font map from segment table</li>
+<li>[ ] Flash final render firmware (NTP + RTC + brightness + presence)</li>
+</ul>
+<p>Note: reshifting the full 112-bit frame to blink the colon is HARMLESS —
+outputs hold on the latch while shifting, only LE pulse updates them, so no
+flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
+<h2 id="display-led-count-from-physical-inspection">DISPLAY LED COUNT (from physical inspection)</h2>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>LED points</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Time (HH:MM, colon separate)</td>
+<td>23 (2+7+7+7, tens-hr shows only "1")</td>
+</tr>
+<tr>
+<td>Days (day-of-week)</td>
+<td>7</td>
+</tr>
+<tr>
+<td>Date (incl. 3 D/M/Y indicators)</td>
+<td>50</td>
+</tr>
+<tr>
+<td>TOTAL used</td>
+<td>80</td>
+</tr>
+<tr>
+<td>Chain has 112 outputs -&gt; ~32 SPARE outputs available.</td>
+<td></td>
+</tr>
+<tr>
+<td>Spares can host colon/seconds later (no extra ESP pin needed).</td>
+<td></td>
+</tr>
+<tr>
+<td>Still must walk outputs 0..111 to map each position -&gt; physical LED.</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="current-status">Current status</h2>
+<ul>
+<li>[x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
+<li>[x] Display type: STATIC (confirmed via OE PWM behaviour)</li>
+<li>[x] MOSFET roles mapped (B=time+ICs, C=date+days, A=divider, D=CR unknown)</li>
+<li>[x] Colon = FET B anode + MCU-GPIO cathode (not on chain)</li>
+<li>[x] RTC kept as battery backup (ESP sole master after MCU removed)</li>
+<li>[x] Pin budget solved (colon+seconds -&gt; spare chain outputs)</li>
+<li>[ ] MCU cut from chain, ESP wired in</li>
+<li>[ ] Walking-bit map complete (0..111)</li>
+<li>[ ] Font map built</li>
+<li>[ ] Time rendering works</li>
+<li>[ ] MOSFET sections mapped</li>
+<li>[ ] mmWave presence integrated</li>
+<li>[ ] Brightness (OE PWM) integrated</li>
+</ul>
+</article>
+
+<footer class="site">Open source (GPL v3) · built on the ESP8266 ·
+<a href="https://github.com/g0urav2410/clockwise-smart-clock">source on GitHub</a></footer>
+
+</body>
+</html>
