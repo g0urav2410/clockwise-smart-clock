@@ -4,10 +4,10 @@
 > kept as-is because it's the most honest record of how the pinout, MOSFET
 > roles, and chain wiring were actually figured out — including drafts and dead
 > ends. **It predates the final firmware and its pin numbers are superseded.**
-> For the real, shipped pinout, see the [main README](../README.md#hardware).
+> For the real, shipped pinout, see the [main README](https://github.com/g0urav2410/clockwise-smart-clock#hardware).
 > Everything in the "[Current status](#current-status)" section at the end is
-> done and shipped — see [`firmware/`](../firmware/) for the finished
-> implementation.
+> done and shipped — see [`firmware/`](https://github.com/g0urav2410/clockwise-smart-clock/tree/master/firmware)
+> for the finished implementation.
 
 Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
 chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
@@ -373,9 +373,10 @@ Still must walk outputs 0..111 to map each position -> physical LED.
 ## Current status
 
 Everything below is done and shipped — this log is kept as the record of how
-each step was figured out. See [`firmware/src/main.cpp`](../firmware/src/main.cpp)
-and [`SEGMENT_MAP.md`](SEGMENT_MAP.md) for the final results, and the
-[main README](../README.md) for the current pinout.
+each step was figured out. See [`firmware/src/main.cpp`](https://github.com/g0urav2410/clockwise-smart-clock/blob/master/firmware/src/main.cpp)
+and the [segment map](https://g0urav2410.github.io/clockwise-smart-clock/segment-map.html)
+for the final results, and the [main README](https://github.com/g0urav2410/clockwise-smart-clock)
+for the current pinout.
 
 - [x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)
 - [x] Display type: STATIC (confirmed via OE PWM behaviour)

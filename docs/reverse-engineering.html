@@ -27,10 +27,10 @@
 kept as-is because it's the most honest record of how the pinout, MOSFET
 roles, and chain wiring were actually figured out — including drafts and dead
 ends. <strong>It predates the final firmware and its pin numbers are superseded.</strong>
-For the real, shipped pinout, see the <a href="../README.md#hardware">main README</a>.
+For the real, shipped pinout, see the <a href="https://github.com/g0urav2410/clockwise-smart-clock#hardware">main README</a>.
 Everything in the "<a href="#current-status">Current status</a>" section at the end is
-done and shipped — see <a href="../firmware/"><code>firmware/</code></a> for the finished
-implementation.</p>
+done and shipped — see <a href="https://github.com/g0urav2410/clockwise-smart-clock/tree/master/firmware"><code>firmware/</code></a>
+for the finished implementation.</p>
 </blockquote>
 <p>Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
 chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
@@ -597,9 +597,10 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 </table>
 <h2 id="current-status">Current status</h2>
 <p>Everything below is done and shipped — this log is kept as the record of how
-each step was figured out. See <a href="../firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a>
-and <a href="SEGMENT_MAP.md"><code>SEGMENT_MAP.md</code></a> for the final results, and the
-<a href="../README.md">main README</a> for the current pinout.</p>
+each step was figured out. See <a href="https://github.com/g0urav2410/clockwise-smart-clock/blob/master/firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a>
+and the <a href="https://g0urav2410.github.io/clockwise-smart-clock/segment-map.html">segment map</a>
+for the final results, and the <a href="https://github.com/g0urav2410/clockwise-smart-clock">main README</a>
+for the current pinout.</p>
 <ul class="tasklist">
 <li class="task"><input type="checkbox" disabled checked> Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
 <li class="task"><input type="checkbox" disabled checked> Display type: STATIC (confirmed via OE PWM behaviour)</li>

@@ -395,7 +395,7 @@ If you do need the console (bench work, a repair), there's a persisted toggle �
   **asleep**. Flipping the toggle can't break anything.
 - **On + sensor unplugged:** ~2 s after the stream stops, the console **wakes
   up** — the same command set listed in
-  [firmware/SERIAL_COMMANDS.md](firmware/SERIAL_COMMANDS.md).
+  [firmware/SERIAL_COMMANDS.md](https://github.com/g0urav2410/clockwise-smart-clock/blob/master/firmware/SERIAL_COMMANDS.md).
 
 USB *flashing* works regardless of the toggle. Turn it off to return to normal.
 
@@ -559,5 +559,5 @@ button — hold until the 3rd flash, then let go. See
 
 ---
 
-For hardware internals and how the display was reverse-engineered, see
-[hardware/](hardware/).
+For hardware internals and how the display was reverse-engineered, see the
+[hardware docs](https://g0urav2410.github.io/clockwise-smart-clock/docs.html).
