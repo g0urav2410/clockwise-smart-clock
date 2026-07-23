@@ -5,8 +5,9 @@
 > roles, and chain wiring were actually figured out — including drafts and dead
 > ends. **It predates the final firmware and its pin numbers are superseded.**
 > For the real, shipped pinout, see the [main README](../README.md#hardware).
-> Everything below the "Current status" section at the end is now done — see
-> [`firmware/`](../firmware/) for the finished implementation.
+> Everything in the "[Current status](#current-status)" section at the end is
+> done and shipped — see [`firmware/`](../firmware/) for the finished
+> implementation.
 
 Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
 chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
