@@ -369,24 +369,23 @@ Chain has 112 outputs -> ~32 SPARE outputs available.
 Spares can host colon/seconds later (no extra ESP pin needed).
 Still must walk outputs 0..111 to map each position -> physical LED.
 
-## Current status (at the time this log was written)
+## Current status
+
+Everything below is done and shipped — this log is kept as the record of how
+each step was figured out. See [`firmware/src/main.cpp`](../firmware/src/main.cpp)
+and [`SEGMENT_MAP.md`](SEGMENT_MAP.md) for the final results, and the
+[main README](../README.md) for the current pinout.
+
 - [x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)
 - [x] Display type: STATIC (confirmed via OE PWM behaviour)
 - [x] MOSFET roles mapped (B=time+ICs, C=date+days, A=divider, D=CR unknown)
 - [x] Colon = FET B anode + MCU-GPIO cathode (not on chain)
 - [x] RTC kept as battery backup (ESP sole master after MCU removed)
 - [x] Pin budget solved (colon+seconds -> spare chain outputs)
-- [ ] MCU cut from chain, ESP wired in
-- [ ] Walking-bit map complete (0..111)
-- [ ] Font map built
-- [ ] Time rendering works
-- [ ] MOSFET sections mapped
-- [ ] mmWave presence integrated
-- [ ] Brightness (OE PWM) integrated
-
-**Since this log:** every item above shipped. The MCU takeover, walking-bit
-segment map, font map, time rendering, MOSFET sections, presence sensing, and
-OE-PWM brightness are all implemented and running — see
-[`firmware/src/main.cpp`](../firmware/src/main.cpp) and
-[`SEGMENT_MAP.md`](SEGMENT_MAP.md) for the final results, and the
-[main README](../README.md) for the current pinout.
+- [x] MCU cut from chain, ESP wired in
+- [x] Walking-bit map complete (0..111)
+- [x] Font map built
+- [x] Time rendering works
+- [x] MOSFET sections mapped
+- [x] mmWave presence integrated
+- [x] Brightness (OE PWM) integrated

@@ -594,7 +594,11 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 </tr>
 </tbody>
 </table>
-<h2 id="current-status-at-the-time-this-log-was-written">Current status (at the time this log was written)</h2>
+<h2 id="current-status">Current status</h2>
+<p>Everything below is done and shipped — this log is kept as the record of how
+each step was figured out. See <a href="../firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a>
+and <a href="SEGMENT_MAP.md"><code>SEGMENT_MAP.md</code></a> for the final results, and the
+<a href="../README.md">main README</a> for the current pinout.</p>
 <ul>
 <li>[x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
 <li>[x] Display type: STATIC (confirmed via OE PWM behaviour)</li>
@@ -602,20 +606,14 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 <li>[x] Colon = FET B anode + MCU-GPIO cathode (not on chain)</li>
 <li>[x] RTC kept as battery backup (ESP sole master after MCU removed)</li>
 <li>[x] Pin budget solved (colon+seconds -&gt; spare chain outputs)</li>
-<li>[ ] MCU cut from chain, ESP wired in</li>
-<li>[ ] Walking-bit map complete (0..111)</li>
-<li>[ ] Font map built</li>
-<li>[ ] Time rendering works</li>
-<li>[ ] MOSFET sections mapped</li>
-<li>[ ] mmWave presence integrated</li>
-<li>[ ] Brightness (OE PWM) integrated</li>
+<li>[x] MCU cut from chain, ESP wired in</li>
+<li>[x] Walking-bit map complete (0..111)</li>
+<li>[x] Font map built</li>
+<li>[x] Time rendering works</li>
+<li>[x] MOSFET sections mapped</li>
+<li>[x] mmWave presence integrated</li>
+<li>[x] Brightness (OE PWM) integrated</li>
 </ul>
-<p><strong>Since this log:</strong> every item above shipped. The MCU takeover, walking-bit
-segment map, font map, time rendering, MOSFET sections, presence sensing, and
-OE-PWM brightness are all implemented and running — see
-<a href="../firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a> and
-<a href="SEGMENT_MAP.md"><code>SEGMENT_MAP.md</code></a> for the final results, and the
-<a href="../README.md">main README</a> for the current pinout.</p>
 </article>
 
 <footer class="site">Open source (GPL v3) · built on the ESP8266 ·
