@@ -124,6 +124,13 @@ class ClockwiseCard extends HTMLElement {
     const s = this._hass && this._hass.states[this._eid(domain, key)];
     return s ? s.state : undefined;
   }
+  // True only for a real value -- HA reports "unavailable"/"unknown" (as actual
+  // state strings, not undefined) when the clock drops off MQTT. Without this,
+  // those strings got fed straight into the digit renderer as if they were the
+  // time/date, producing a wall of stray blank segment-digits.
+  _valid(s) {
+    return s !== undefined && s !== 'unavailable' && s !== 'unknown';
+  }
 
   _build() {
     this.innerHTML = `
@@ -250,20 +257,23 @@ class ClockwiseCard extends HTMLElement {
   _update() {
     const q = id => this.querySelector(id);
 
-    // time "H:MM"
-    const t = (this._state('sensor', 'time') || '').split(':');
+    // time "H:MM" -- blank (not garbage digits) while the sensor is unavailable
+    const timeState = this._state('sensor', 'time');
+    const t = this._valid(timeState) ? timeState.split(':') : [];
     q('#cw-h').innerHTML = digitsHTML(t[0] || '', 120);
     q('#cw-m').innerHTML = digitsHTML(t[1] || '', 120);
 
     // date "YYYY-MM-DD"
-    const dparts = (this._state('sensor', 'date') || '----.--.--').split('-');
-    const yr = dparts[0] || '', mo = String(Number(dparts[1] || 0)) || '', dd = dparts[2] || '';
+    const dateState = this._state('sensor', 'date');
+    const dparts = this._valid(dateState) ? dateState.split('-') : [];
+    const yr = dparts[0] || '', mo = dparts[1] ? String(Number(dparts[1])) : '', dd = dparts[2] || '';
     q('#cw-d').innerHTML = digitsHTML(dd, 58);
     q('#cw-mo').innerHTML = digitsHTML(mo, 58);
     q('#cw-y').innerHTML = digitsHTML(yr, 58);
 
     // day of week (1=Mon..7=Sun)
-    const dow = Number(this._state('sensor', 'dow') || 0);
+    const dowState = this._state('sensor', 'dow');
+    const dow = this._valid(dowState) ? Number(dowState) : 0;
     this.querySelectorAll('.dowcol span').forEach((s, i) =>
       s.classList.toggle('on', i === dow - 1));
 
@@ -285,14 +295,14 @@ class ClockwiseCard extends HTMLElement {
     if (online !== undefined)
       pills += `<span class="pill"><span class="d ${online === 'on' ? 'g' : 'r'}"></span>${online === 'on' ? 'Connected' : 'Offline'}</span>`;
     pills += `<span class="pill"><span class="d ${pres ? 'g' : ''}"></span>${presTxt}</span>`;
-    if (pres && dist !== undefined) pills += `<span class="pill">📏 ${dist} m</span>`;
-    if (rssi !== undefined) pills += `<span class="pill">📶 ${rssi} dBm</span>`;
+    if (pres && this._valid(dist)) pills += `<span class="pill">📏 ${dist} m</span>`;
+    if (this._valid(rssi)) pills += `<span class="pill">📶 ${rssi} dBm</span>`;
     q('#cw-status').innerHTML = pills;
 
     // brightness (don't fight an active drag)
     const bright = q('#cw-bright');
     const bv = this._state('number', 'brightness');
-    if (bv !== undefined && document.activeElement !== bright) bright.value = bv;
+    if (this._valid(bv) && document.activeElement !== bright) bright.value = bv;
 
     // mode
     const mode = this._state('select', 'mode');
