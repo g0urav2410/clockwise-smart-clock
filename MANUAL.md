@@ -14,7 +14,7 @@ WiFi — no cloud, no account, no broker required.
 - [Time and the RTC](#time-and-the-rtc)
 - [HTTP API](#http-api)
 - [Config reference](#config-reference)
-- [Serial commands](#serial-commands)
+- [Serial console](#serial-console-behind-a-toggle)
 - [Updating firmware](#updating-firmware)
 - [Location and timezone](#location-and-timezone)
 - [Resetting the clock](#resetting-the-clock)
