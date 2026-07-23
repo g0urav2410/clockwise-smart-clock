@@ -108,6 +108,9 @@ Later updates can go over the air (OTA) instead of USB — see the manual.
 
 An Android app built with [Flutter](https://flutter.dev/).
 
+> **[⬇ Download the latest APK](https://github.com/g0urav2410/clockwise-smart-clock/releases/tag/app-v1.0.0)**
+> — or build it yourself:
+
 ```bash
 cd app
 flutter pub get
