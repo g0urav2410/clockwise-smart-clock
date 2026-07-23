@@ -5,7 +5,7 @@ Run from the repo root:  python docs/build.py
 Source of truth stays the .md files; this just produces browsable versions under
 docs/ that match the site's look. Re-run after editing any doc.
 """
-import os, markdown
+import os, re, markdown
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT  = os.path.join(ROOT, "docs")
@@ -59,12 +59,38 @@ PAGE = """<!doctype html>
 </html>
 """
 
+# python-markdown has no built-in GitHub-style task list support, so `- [ ]` /
+# `- [x]` render as literal bracket text. Turn those into real checkboxes after
+# conversion instead of adding a dependency.
+_TASK_RE = re.compile(r'^(\s*)<li>\[([ xX])\]\s+')
+
+def _tasklists(html):
+    lines = html.split("\n")
+    out = []
+    touched = False
+    for line in lines:
+        m = _TASK_RE.match(line)
+        if m:
+            touched = True
+            checked = " checked" if m.group(2).lower() == "x" else ""
+            line = _TASK_RE.sub(
+                rf'\1<li class="task">'
+                rf'<input type="checkbox" disabled{checked}> ',
+                line,
+            )
+        out.append(line)
+    html = "\n".join(out)
+    if touched:
+        html = html.replace('<ul>\n<li class="task">', '<ul class="tasklist">\n<li class="task">')
+    return html
+
 def convert(md_text):
-    return markdown.markdown(
+    html = markdown.markdown(
         md_text,
         extensions=["extra", "toc", "sane_lists", "admonition"],
         output_format="html5",
     )
+    return _tasklists(html)
 
 def build_page(md_path, out_html, title, desc):
     with open(os.path.join(ROOT, md_path), encoding="utf-8") as f:

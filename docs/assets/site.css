@@ -119,6 +119,9 @@ footer.site a{color:var(--muted)}
 .doc hr{border:none;border-top:1px solid var(--line);margin:2em 0}
 .doc ul,.doc ol{padding-left:1.4em}
 .doc li{margin:.35em 0}
+.doc ul.tasklist{list-style:none;padding-left:0}
+.doc li.task{display:flex;align-items:baseline;gap:9px;margin:.5em 0}
+.doc li.task input[type="checkbox"]{accent-color:var(--good);width:15px;height:15px;flex:0 0 auto;margin-top:.2em}
 
 /* docs index cards */
 .docgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:26px 0}

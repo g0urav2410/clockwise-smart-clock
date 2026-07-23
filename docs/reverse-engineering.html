@@ -274,18 +274,18 @@ Original MCU stays powered, just severed from the display.</p>
 <p>Once the MCU is desoldered we lose: live signals, original display behaviour,
 and the "which MCU pin does what" reference. Capture all of this FIRST.</p>
 <h3 id="p1-only-knowable-with-mcu-running">P1 — only knowable with MCU running</h3>
-<ul>
-<li>[x] Static vs multiplexed? → <strong>STATIC, CONFIRMED</strong>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled checked> Static vs multiplexed? → <strong>STATIC, CONFIRMED</strong>
       Proof: OE PWM gave smooth uniform brightness across the WHOLE display.
       Multiplexed would fight the scan (flicker/uneven). Clean global dimming
       = every segment driven continuously = static direct drive.
       → Section MOSFETs are brightness/blanking gates, NOT scan rows.
       → Display content: day-of-week, time, date, month, year.</li>
-<li>[ ] Logic-analyzer capture of SDI + CLK + LE + OE (one full refresh) — gives
+<li class="task"><input type="checkbox" disabled> Logic-analyzer capture of SDI + CLK + LE + OE (one full refresh) — gives
       bit order, refresh rate, frame size</li>
-<li>[ ] Watch each section MOSFET gate: does it switch fast (mux row) or stay
+<li class="task"><input type="checkbox" disabled> Watch each section MOSFET gate: does it switch fast (mux row) or stay
       on/PWM (brightness/blank)?</li>
-<li>[ ] Photograph the clock showing a KNOWN time (e.g. 12:34) — reference for
+<li class="task"><input type="checkbox" disabled> Photograph the clock showing a KNOWN time (e.g. 12:34) — reference for
       decoding which segments = which digit later</li>
 </ul>
 <h3 id="p1b-logic-level-check-done-no-shifter-needed">P1b — LOGIC LEVEL CHECK → DONE, no shifter needed</h3>
@@ -370,12 +370,12 @@ RTC VDD.</p>
   Use VOLTAGE comparisons if more mapping ever needed.</li>
 </ul>
 <h3 id="p2-mcu-pinout-reference-lost-after-desolder">P2 — MCU pinout reference (lost after desolder)</h3>
-<ul>
-<li>[ ] Map EVERY MCU pin -&gt; what it connects to. Confirmed so far:
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Map EVERY MCU pin -&gt; what it connects to. Confirmed so far:
         MCU pin 3  -&gt; chip#1 LE  (pin 4)
         MCU pin 8  -&gt; chip#1 SDI (pin 2)
         MCU pin 17 -&gt; chip#1 CLK (pin 3)</li>
-<li>[ ] MCU pins -&gt; section MOSFET gates (which pin drives which MOSFET)</li>
+<li class="task"><input type="checkbox" disabled> MCU pins -&gt; section MOSFET gates (which pin drives which MOSFET)</li>
 </ul>
 <h3 id="mosfet-map-4-total">MOSFET map (4 total)</h3>
 <table>
@@ -475,49 +475,49 @@ sensor RX/TX(2) + RTC SDA/SCL(2) = 11. ESP8266 has only 9 usable. Over by 2.</p>
 - [ ] MCU pins -&gt; seconds LED / colon drive
 - [ ] MCU pins -&gt; any buttons / set switches</p>
 <h3 id="p3-can-also-do-after-desolder-esp-drives-chain">P3 — can also do AFTER desolder (ESP drives chain)</h3>
-<ul>
-<li>[ ] Chain order of all 7 chips (SDO pin22 -&gt; next SDI pin2)</li>
-<li>[ ] Walking-bit segment map (tc_chain_test.ino), positions 0..111</li>
-<li>[ ] REXT resistor value on each chip (sets LED current)</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Chain order of all 7 chips (SDO pin22 -&gt; next SDI pin2)</li>
+<li class="task"><input type="checkbox" disabled> Walking-bit segment map (tc_chain_test.ino), positions 0..111</li>
+<li class="task"><input type="checkbox" disabled> REXT resistor value on each chip (sets LED current)</li>
 </ul>
 <h2 id="desolder-rewire-step-by-step">DESOLDER + REWIRE — step by step</h2>
 <h3 id="before-desoldering-capture-mcu-still-alive">Before desoldering (capture, MCU still alive)</h3>
-<ul>
-<li>[ ] Photo of display at a KNOWN time/date (reference for segment decoding)</li>
-<li>[ ] Trace + note MCU pin -&gt; colon cathode</li>
-<li>[ ] Confirm: is seconds also GPIO-cathode (like colon) or on the chain?</li>
-<li>[ ] Note MCU VDD &amp; GND pins (leave those rails/pads intact)</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Photo of display at a KNOWN time/date (reference for segment decoding)</li>
+<li class="task"><input type="checkbox" disabled> Trace + note MCU pin -&gt; colon cathode</li>
+<li class="task"><input type="checkbox" disabled> Confirm: is seconds also GPIO-cathode (like colon) or on the chain?</li>
+<li class="task"><input type="checkbox" disabled> Note MCU VDD &amp; GND pins (leave those rails/pads intact)</li>
 </ul>
 <h3 id="desolder">Desolder</h3>
-<ul>
-<li>[ ] Hot-air the original MCU off. Leave every other component in place.</li>
-<li>[ ] Clean the pads. MCU is fully out of the circuit now.</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Hot-air the original MCU off. Leave every other component in place.</li>
+<li class="task"><input type="checkbox" disabled> Clean the pads. MCU is fully out of the circuit now.</li>
 </ul>
 <h3 id="rewire-esp-chain-chip-1">Rewire ESP -&gt; chain (chip #1)</h3>
-<ul>
-<li>[ ] ESP D7 (GPIO13) -&gt; chip#1 pin 2  (SDI)</li>
-<li>[ ] ESP D6 (GPIO12) -&gt; chip#1 pin 3  (CLK)</li>
-<li>[ ] ESP D8 (GPIO15) -&gt; chip#1 pin 4  (LE)</li>
-<li>[ ] ESP D5 (GPIO14) -&gt; OE line        (already wired)</li>
-<li>[ ] ESP GND         -&gt; board GND       (common)</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> ESP D7 (GPIO13) -&gt; chip#1 pin 2  (SDI)</li>
+<li class="task"><input type="checkbox" disabled> ESP D6 (GPIO12) -&gt; chip#1 pin 3  (CLK)</li>
+<li class="task"><input type="checkbox" disabled> ESP D8 (GPIO15) -&gt; chip#1 pin 4  (LE)</li>
+<li class="task"><input type="checkbox" disabled> ESP D5 (GPIO14) -&gt; OE line        (already wired)</li>
+<li class="task"><input type="checkbox" disabled> ESP GND         -&gt; board GND       (common)</li>
 </ul>
 <h3 id="hardwire-section-power-on">Hardwire section power ON</h3>
-<ul>
-<li>[ ] FET B gate -&gt; tie to permanent-ON level (P-ch: gate to GND via pulldown,
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> FET B gate -&gt; tie to permanent-ON level (P-ch: gate to GND via pulldown,
       or however it switches on). Powers TC5020EJ VDD + time/logo/colon/seconds.</li>
-<li>[ ] FET C gate -&gt; tie permanent-ON. Powers date/month/year + day-LED#2.</li>
+<li class="task"><input type="checkbox" disabled> FET C gate -&gt; tie permanent-ON. Powers date/month/year + day-LED#2.</li>
 </ul>
 <h3 id="separate-drive-parts">Separate-drive parts</h3>
-<ul>
-<li>[ ] Divider line FET gate -&gt; ESP D3 (GPIO0)   [PWM, separate 5V]</li>
-<li>[ ] Colon cathode   -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
-<li>[ ] Seconds cathode -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Divider line FET gate -&gt; ESP D3 (GPIO0)   [PWM, separate 5V]</li>
+<li class="task"><input type="checkbox" disabled> Colon cathode   -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
+<li class="task"><input type="checkbox" disabled> Seconds cathode -&gt; spare TC5020EJ output (reroute) OR ESP pin if no spare</li>
 </ul>
 <h3 id="rtc-esp-is-now-sole-i2c-master">RTC (ESP is now sole I2C master)</h3>
-<ul>
-<li>[ ] ESP D2 (GPIO4) -&gt; RTC SDA (pin 8)</li>
-<li>[ ] ESP D1 (GPIO5) -&gt; RTC SCL (pin 1)</li>
-<li>[ ] Remove the old 100ohm series resistors if they hinder (no MCU to isolate now)</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> ESP D2 (GPIO4) -&gt; RTC SDA (pin 8)</li>
+<li class="task"><input type="checkbox" disabled> ESP D1 (GPIO5) -&gt; RTC SCL (pin 1)</li>
+<li class="task"><input type="checkbox" disabled> Remove the old 100ohm series resistors if they hinder (no MCU to isolate now)</li>
 </ul>
 <h3 id="best-rtc-wiring-power-rtc-from-d1-mini-3v3-cleanest">BEST RTC WIRING — power RTC from D1 Mini 3V3 (cleanest)</h3>
 <p>Board = Wemos D1 Mini (low-dropout reg ME6211/RT9013, works from ~3.6V in).
@@ -538,19 +538,19 @@ Raw clock input (5V, sags to 4V) stays &gt;3.6V -&gt; feed it to D1 Mini "5V" pi
   - Shared GND
   One wall adapter powers everything. Beefier adapter optional (stiffer rail).</p>
 <h3 id="mmwave-sensor">mmWave sensor</h3>
-<ul>
-<li>[ ] Sensor TX -&gt; ESP D4 (GPIO2)  [RX only, SoftwareSerial]</li>
-<li>[ ] Sensor GND -&gt; common GND</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Sensor TX -&gt; ESP D4 (GPIO2)  [RX only, SoftwareSerial]</li>
+<li class="task"><input type="checkbox" disabled> Sensor GND -&gt; common GND</li>
 </ul>
 <h3 id="bring-up-sequence">Bring-up sequence</h3>
-<ul>
-<li>[ ] Flash tc_chain_test.ino -&gt; walk outputs 0..111, record segment map</li>
-<li>[ ] Map the USED outputs first: time digits, date, month, year, day words</li>
-<li>[ ] Whatever outputs are left = spares. THEN decide colon/seconds:
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled> Flash tc_chain_test.ino -&gt; walk outputs 0..111, record segment map</li>
+<li class="task"><input type="checkbox" disabled> Map the USED outputs first: time digits, date, month, year, day words</li>
+<li class="task"><input type="checkbox" disabled> Whatever outputs are left = spares. THEN decide colon/seconds:
         spare outputs available -&gt; reroute colon+seconds to chain (0 pins)
         no spares               -&gt; keep colon+seconds on ESP GPIO pins</li>
-<li>[ ] Build font map from segment table</li>
-<li>[ ] Flash final render firmware (NTP + RTC + brightness + presence)</li>
+<li class="task"><input type="checkbox" disabled> Build font map from segment table</li>
+<li class="task"><input type="checkbox" disabled> Flash final render firmware (NTP + RTC + brightness + presence)</li>
 </ul>
 <p>Note: reshifting the full 112-bit frame to blink the colon is HARMLESS —
 outputs hold on the latch while shifting, only LE pulse updates them, so no
@@ -599,20 +599,20 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 each step was figured out. See <a href="../firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a>
 and <a href="SEGMENT_MAP.md"><code>SEGMENT_MAP.md</code></a> for the final results, and the
 <a href="../README.md">main README</a> for the current pinout.</p>
-<ul>
-<li>[x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
-<li>[x] Display type: STATIC (confirmed via OE PWM behaviour)</li>
-<li>[x] MOSFET roles mapped (B=time+ICs, C=date+days, A=divider, D=CR unknown)</li>
-<li>[x] Colon = FET B anode + MCU-GPIO cathode (not on chain)</li>
-<li>[x] RTC kept as battery backup (ESP sole master after MCU removed)</li>
-<li>[x] Pin budget solved (colon+seconds -&gt; spare chain outputs)</li>
-<li>[x] MCU cut from chain, ESP wired in</li>
-<li>[x] Walking-bit map complete (0..111)</li>
-<li>[x] Font map built</li>
-<li>[x] Time rendering works</li>
-<li>[x] MOSFET sections mapped</li>
-<li>[x] mmWave presence integrated</li>
-<li>[x] Brightness (OE PWM) integrated</li>
+<ul class="tasklist">
+<li class="task"><input type="checkbox" disabled checked> Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
+<li class="task"><input type="checkbox" disabled checked> Display type: STATIC (confirmed via OE PWM behaviour)</li>
+<li class="task"><input type="checkbox" disabled checked> MOSFET roles mapped (B=time+ICs, C=date+days, A=divider, D=CR unknown)</li>
+<li class="task"><input type="checkbox" disabled checked> Colon = FET B anode + MCU-GPIO cathode (not on chain)</li>
+<li class="task"><input type="checkbox" disabled checked> RTC kept as battery backup (ESP sole master after MCU removed)</li>
+<li class="task"><input type="checkbox" disabled checked> Pin budget solved (colon+seconds -&gt; spare chain outputs)</li>
+<li class="task"><input type="checkbox" disabled checked> MCU cut from chain, ESP wired in</li>
+<li class="task"><input type="checkbox" disabled checked> Walking-bit map complete (0..111)</li>
+<li class="task"><input type="checkbox" disabled checked> Font map built</li>
+<li class="task"><input type="checkbox" disabled checked> Time rendering works</li>
+<li class="task"><input type="checkbox" disabled checked> MOSFET sections mapped</li>
+<li class="task"><input type="checkbox" disabled checked> mmWave presence integrated</li>
+<li class="task"><input type="checkbox" disabled checked> Brightness (OE PWM) integrated</li>
 </ul>
 </article>
 
