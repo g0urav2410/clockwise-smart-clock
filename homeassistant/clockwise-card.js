@@ -55,21 +55,23 @@ const ALIASES = {
   online:['online','connectivity']
 };
 
-// Digit size is a CSS class (dig-time / dig-date), not a fixed pixel height --
-// width comes from a clamp() bound to the card's own width (container query
-// units), so digits shrink to fit on a narrow card/window instead of
-// overflowing past its edges. Height follows via aspect-ratio, same as before.
-function digitSVG(ch, cls) {
-  const on = SEG[ch] || '';
-  let s = `<svg class="${cls}" viewBox="0 0 46 84" style="display:block;overflow:visible">`;
+// Digits render at a fixed design size (h px tall) -- responsiveness comes
+// from scaling the WHOLE card as one unit (see the .scalewrap `zoom` rule in
+// _build), not from resizing each piece independently. Independently
+// clamping just the digit width left everything else (logo dot, colon dots,
+// day labels, chip padding) at fixed size, so it visually clashed with the
+// shrunk digits instead of shrinking together.
+function digitSVG(ch, h) {
+  const w = h * 46 / 84, on = SEG[ch] || '';
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 46 84" style="display:block;overflow:visible">`;
   for (const k in SEGP) {
     const lit = on.indexOf(k) >= 0;
     s += `<polygon points="${SEGP[k]}" fill="${lit ? '#f4f6ff' : '#2c3038'}"${lit ? ' style="filter:drop-shadow(0 0 4px rgba(230,238,255,.45))"' : ''}/>`;
   }
   return s + '</svg>';
 }
-function digitsHTML(num, cls) {
-  return String(num).split('').map(c => c === ' ' ? `<span class="${cls} sp"></span>` : digitSVG(c, cls)).join('');
+function digitsHTML(num, h) {
+  return String(num).split('').map(c => c === ' ' ? `<span style="display:inline-block;width:${h*46/84}px"></span>` : digitSVG(c, h)).join('');
 }
 
 class ClockwiseCard extends HTMLElement {
@@ -141,21 +143,24 @@ class ClockwiseCard extends HTMLElement {
       <ha-card style="max-width:460px;margin:0 auto">
       <style>
         .cw{--fg:#f4f6ff;--dim:#2c3038;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-          container-type:inline-size;
-          /* digit widths scale with the card's own width (not the viewport) so
-             they shrink to fit instead of overflowing past the card on a
-             narrow window/column; height follows via aspect-ratio. */
-          --dig-time-w:clamp(24px,14cqw,66px); --dig-date-w:clamp(12px,6.8cqw,32px)}
+          container-type:inline-size}
+        /* The whole card renders at a fixed 460px design size, then this one
+           rule scales it down as a single unit to fit a narrower card/window
+           -- so the digits, colon, logo dot, day labels and chip padding all
+           shrink together in proportion instead of resizing independently
+           (which is what caused them to visually clash before). zoom is used
+           instead of transform:scale because it participates in layout, so
+           the card's actual box shrinks too instead of leaving empty space
+           -- Chrome/Edge only, matching this card's other requirements. */
+        .cw .scalewrap{zoom:min(1, calc(100cqi / 460px))}
         .cw .panel{background:radial-gradient(130% 130% at 50% 0%,#14161c 0,#030304 78%);padding:14px 16px 10px;border-radius:12px 12px 0 0;overflow-x:auto}
         .cw .top{display:flex;align-items:stretch;gap:8px}
         .cw .dowcol{display:flex;flex-direction:column;justify-content:space-between;padding:2px 0}
-        .cw .dowcol span{font-family:ui-monospace,"Consolas","SF Mono","Courier New",monospace;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#31353d;width:clamp(30px,12cqw,46px);height:15px;display:flex;align-items:center;justify-content:center;line-height:1;text-indent:1.5px}
+        .cw .dowcol span{font-family:ui-monospace,"Consolas","SF Mono","Courier New",monospace;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#31353d;width:46px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;text-indent:1.5px}
         .cw .dowcol span.on{color:var(--fg);text-shadow:0 0 10px rgba(230,238,255,.65)}
         .cw .time{display:flex;align-items:center;flex:1;justify-content:space-evenly}
         .cw .digits{display:flex;gap:7px}
-        .cw .dig-time{width:var(--dig-time-w);aspect-ratio:46/84;flex:0 0 auto}
-        .cw .dig-date{width:var(--dig-date-w);aspect-ratio:46/84;flex:0 0 auto}
-        .cw .colon{display:flex;flex-direction:column;align-items:center;height:calc(var(--dig-time-w) * 84 / 46);padding:0 3px}
+        .cw .colon{display:flex;flex-direction:column;align-items:center;height:120px;padding:0 3px}
         .cw .colon .logo{width:11px;height:11px;border-radius:50%;background:#26282e;margin-top:3px;flex:0 0 auto;transition:background .2s,box-shadow .2s}
         .cw .colon .logo.on{background:#ff3b3b;box-shadow:0 0 9px 2px rgba(255,59,59,.6)}
         .cw .cdots{flex:1;display:flex;flex-direction:column;justify-content:center;gap:22px}
@@ -191,6 +196,7 @@ class ClockwiseCard extends HTMLElement {
       </style>
       <div class="cw">
         <div class="toast" id="cw-toast"></div>
+        <div class="scalewrap">
         <div class="panel">
           <div class="top">
             <div class="dowcol">${DAYS.map(d => `<span data-day="${d}">${d}</span>`).join('')}</div>
@@ -221,6 +227,7 @@ class ClockwiseCard extends HTMLElement {
             <span class="chip" id="cw-sync">↻ Sync</span>
             <span class="chip warn" id="cw-reboot">⟳ Reboot</span>
           </div>
+        </div>
         </div>
       </div>
       </ha-card>`;
@@ -279,16 +286,16 @@ class ClockwiseCard extends HTMLElement {
     const offline = onlineState !== undefined ? onlineState !== 'on' : !this._valid(timeState);
     q('.cw').classList.toggle('offline', offline);
     const t = this._valid(timeState) ? timeState.split(':') : [];
-    q('#cw-h').innerHTML = digitsHTML(t[0] || '', 'dig-time');
-    q('#cw-m').innerHTML = digitsHTML(t[1] || '', 'dig-time');
+    q('#cw-h').innerHTML = digitsHTML(t[0] || '', 120);
+    q('#cw-m').innerHTML = digitsHTML(t[1] || '', 120);
 
     // date "YYYY-MM-DD"
     const dateState = this._state('sensor', 'date');
     const dparts = this._valid(dateState) ? dateState.split('-') : [];
     const yr = dparts[0] || '', mo = dparts[1] ? String(Number(dparts[1])) : '', dd = dparts[2] || '';
-    q('#cw-d').innerHTML = digitsHTML(dd, 'dig-date');
-    q('#cw-mo').innerHTML = digitsHTML(mo, 'dig-date');
-    q('#cw-y').innerHTML = digitsHTML(yr, 'dig-date');
+    q('#cw-d').innerHTML = digitsHTML(dd, 58);
+    q('#cw-mo').innerHTML = digitsHTML(mo, 58);
+    q('#cw-y').innerHTML = digitsHTML(yr, 58);
 
     // day of week (1=Mon..7=Sun)
     const dowState = this._state('sensor', 'dow');
