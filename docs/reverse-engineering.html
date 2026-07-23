@@ -22,6 +22,15 @@
 <article class="doc">
 <a class="back" href="docs.html">← All docs</a>
 <h1 id="ajanta-clock-full-display-takeover-option-a">Ajanta Clock — Full Display Takeover (Option A)</h1>
+<blockquote>
+<p><strong>This is the raw investigation log from reverse-engineering the display</strong>,
+kept as-is because it's the most honest record of how the pinout, MOSFET
+roles, and chain wiring were actually figured out — including drafts and dead
+ends. <strong>It predates the final firmware and its pin numbers are superseded.</strong>
+For the real, shipped pinout, see the <a href="../README.md#hardware">main README</a>.
+Everything below the "Current status" section at the end is now done — see
+<a href="../firmware/"><code>firmware/</code></a> for the finished implementation.</p>
+</blockquote>
 <p>Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
 chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
 presence. Original clock MCU is disconnected from the display lines (can stay
@@ -585,7 +594,7 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 </tr>
 </tbody>
 </table>
-<h2 id="current-status">Current status</h2>
+<h2 id="current-status-at-the-time-this-log-was-written">Current status (at the time this log was written)</h2>
 <ul>
 <li>[x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)</li>
 <li>[x] Display type: STATIC (confirmed via OE PWM behaviour)</li>
@@ -601,6 +610,12 @@ flicker. Frame shift is &lt;1ms. Colon-on-chain is fine if pins are tight.</p>
 <li>[ ] mmWave presence integrated</li>
 <li>[ ] Brightness (OE PWM) integrated</li>
 </ul>
+<p><strong>Since this log:</strong> every item above shipped. The MCU takeover, walking-bit
+segment map, font map, time rendering, MOSFET sections, presence sensing, and
+OE-PWM brightness are all implemented and running — see
+<a href="../firmware/src/main.cpp"><code>firmware/src/main.cpp</code></a> and
+<a href="SEGMENT_MAP.md"><code>SEGMENT_MAP.md</code></a> for the final results, and the
+<a href="../README.md">main README</a> for the current pinout.</p>
 </article>
 
 <footer class="site">Open source (GPL v3) · built on the ESP8266 ·

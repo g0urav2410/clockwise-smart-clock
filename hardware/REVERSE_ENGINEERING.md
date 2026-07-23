@@ -1,5 +1,13 @@
 # Ajanta Clock — Full Display Takeover (Option A)
 
+> **This is the raw investigation log from reverse-engineering the display**,
+> kept as-is because it's the most honest record of how the pinout, MOSFET
+> roles, and chain wiring were actually figured out — including drafts and dead
+> ends. **It predates the final firmware and its pin numbers are superseded.**
+> For the real, shipped pinout, see the [main README](../README.md#hardware).
+> Everything below the "Current status" section at the end is now done — see
+> [`firmware/`](../firmware/) for the finished implementation.
+
 Goal: ESP8266 becomes the sole brain. Drives the 7-chip TC5020EJ LED-driver
 chain directly, plus section MOSFETs, plus brightness (OE PWM), plus mmWave
 presence. Original clock MCU is disconnected from the display lines (can stay
@@ -361,7 +369,7 @@ Chain has 112 outputs -> ~32 SPARE outputs available.
 Spares can host colon/seconds later (no extra ESP pin needed).
 Still must walk outputs 0..111 to map each position -> physical LED.
 
-## Current status
+## Current status (at the time this log was written)
 - [x] Control lines identified (SDI=MCU8 / CLK=MCU17 / LE=MCU3)
 - [x] Display type: STATIC (confirmed via OE PWM behaviour)
 - [x] MOSFET roles mapped (B=time+ICs, C=date+days, A=divider, D=CR unknown)
@@ -375,3 +383,10 @@ Still must walk outputs 0..111 to map each position -> physical LED.
 - [ ] MOSFET sections mapped
 - [ ] mmWave presence integrated
 - [ ] Brightness (OE PWM) integrated
+
+**Since this log:** every item above shipped. The MCU takeover, walking-bit
+segment map, font map, time rendering, MOSFET sections, presence sensing, and
+OE-PWM brightness are all implemented and running — see
+[`firmware/src/main.cpp`](../firmware/src/main.cpp) and
+[`SEGMENT_MAP.md`](SEGMENT_MAP.md) for the final results, and the
+[main README](../README.md) for the current pinout.

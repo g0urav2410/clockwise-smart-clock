@@ -1,5 +1,9 @@
 # Ajanta Clock — Segment Map (output position → physical LED)
 
+> The mapping below is complete and matches the shipped firmware — see
+> "FULL DISPLAY VERIFIED" near the end. Kept in its original working-notes
+> form as a reference for anyone mapping a similar display.
+
 Fill this in by walking the mapper (tc_chain_test): for each POS 0..111, note
 which LED/segment lights. 80 of 112 are used; the rest are spares.
 
@@ -56,8 +60,8 @@ MINUTES (chip 6, outputs 80-95):
   M2 (full digit):  a=91  b=93  c=94  d=95  e=89  f=90  g=92
   Unmapped in this chip: 87,88 (colon? spare? — check later)
 
-TODO segments: colon, date (DD chip3), month (chip7), year (chip1,2),
-day-of-week (chip4), + the 3 D/M/Y indicators.
+(Remaining segments — colon, date, month, year, day-of-week, and the D/M/Y
+indicators — are mapped further down; see "FULL SEGMENT MAP" below.)
 
 >>> HOURS + MINUTES VERIFIED: firmware renders 12:34 from RTC correctly,
     proper 12h format (1-12, no leading zero). Time display WORKS. <<<
