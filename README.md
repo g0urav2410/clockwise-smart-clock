@@ -133,6 +133,28 @@ Full instructions: [`homeassistant/README.md`](homeassistant/README.md).
 
 ---
 
+## Roadmap
+
+What's next, roughly in order:
+
+- [ ] **LDR light sensor** — a full ambient-light brightness mode, plus a
+  "don't dim below this floor" option for Sun mode.
+- [ ] **Real photos** — the finished clock, the opened case/wiring, and a short
+  demo video/GIF.
+- [ ] **A wiring diagram** — a visual version of the pin map above.
+- [ ] **A step-by-step build guide** — turning the raw
+  [reverse-engineering log](hardware/REVERSE_ENGINEERING.md) into an actual
+  "do this yourself" walkthrough, backed by the photos above.
+- [ ] **A bill of materials** — one clear parts list with sourcing.
+- [ ] **App & Home Assistant card screenshots** in their respective guides.
+- [ ] **A CHANGELOG** tracking what shipped in each [release](https://github.com/g0urav2410/clockwise-smart-clock/releases).
+- [ ] **Support for other boards / reduced-feature builds** (e.g. no radar) —
+  the clock reporting its capabilities so the app adapts automatically.
+
+Have a clock, board, or feature you'd like supported? Open an issue.
+
+---
+
 ## License & credits
 
 - Firmware, app, and docs: **GPL v3** — see [LICENSE](LICENSE).
