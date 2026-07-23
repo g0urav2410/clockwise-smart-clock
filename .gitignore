@@ -1,0 +1,34 @@
+# PlatformIO build artifacts (regenerated from platformio.ini)
+firmware/.pio/
+
+# Windows folder view junk
+desktop.ini
+Thumbs.db
+
+# Flutter / Dart
+app/.dart_tool/
+app/.flutter-plugin-dependencies
+app/build/
+app/android/.gradle/
+app/android/local.properties
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/**/*.iml
+app/.idea/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+
+# per-machine state written by tools_fake_sun.py
+firmware_pio/tools_fake_sun_saved.json
+
+# gen_regions.py inputs -- fetched on demand, see its docstring
+tools/cities15000.*
+tools/admin1.txt
+tools/iso3166.tab
+tools/zone1970.tab
+tools/backward
+tools/known_zones.txt

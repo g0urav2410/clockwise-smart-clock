@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The clock speaks plain HTTP on the LAN — at whatever IP DHCP gave it, at
+  ajanta-<chipid>.local, and at 192.168.4.1 while it is hosting its setup AP.
+  Android blocks cleartext by default since API 28, which would break every
+  /api/* call. A domain-config can't express "any private IP" (no CIDR support),
+  so cleartext is permitted app-wide. The app only ever talks to the clock on
+  the local network, never to internet hosts.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true"/>
+</network-security-config>
