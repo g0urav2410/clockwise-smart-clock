@@ -48,6 +48,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
+#include <ESP8266HTTPClient.h>
 #include "LD2402.h"
 
 #define FW_VERSION "0.2.0"
@@ -111,8 +112,15 @@ struct Config {
     // Placeholder only: sun mode needs some lat/lon before one is set, and
     // (0,0) is the Atlantic -- a visibly wrong sun curve. This is 0°N on the
     // prime meridian's more useful neighbour, near London, as a neutral
-    // default. Every clock overwrites it during setup (GPS or the city list).
-    float lat          = 51.48f;       // near Greenwich -- replaced at setup
+    // default. Only the APP's location flow (GPS or the city list) ever
+    // overwrites it -- the browser WiFi setup portal does NOT; it sends a
+    // timezone rule but never coordinates. A clock that's only ever been
+    // through the portal is silently still sitting on this placeholder, which
+    // makes Sun mode compute sunrise/sunset for London while displaying it in
+    // the real timezone -- a large, nonsensical-looking shift. The app warns
+    // for exactly this (see LocationWarningBanner) instead of the portal
+    // guessing coordinates via unreliable in-portal browser geolocation.
+    float lat          = 51.48f;       // near Greenwich -- NOT set by the WiFi portal
     float lon          = 0.0f;
     // Separate twilight floors for dawn and dusk. How far below the horizon the
     // sun may be while the display is still above its night level.
@@ -343,7 +351,10 @@ int  manualPos  = 0;
 // handler in loop(). Up here because renderButtonHold() needs it too.
 const int BTN_ABORT = 15;
 
-bool colonOn    = true;    // toggled each second for blink
+bool colonOn    = true;    // on for 800ms then a brief 200ms blank each
+                           // second -- one clear flash per second (easy to
+                           // count), rather than a 50/50 on/off that only
+                           // completes one cycle every two seconds
 // True during the 3s of each 20s cycle that the "no Con" notice is up. Set on
 // the once-a-second tick, read by renderAll().
 bool wifiAlertActive = false;
@@ -998,7 +1009,7 @@ align-items:center;justify-content:center;box-shadow:0 0 40px -6px rgba(52,211,1
 <button class="go" id="go" disabled><span id="gt">Select a network</span></button>
 <p class="ft">Connected to <b>Clockwise-Setup</b><br>Brightness, timezone and the rest live in the app.</p></div>
 <div class="done" id="dn"><div class="rg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
-<h2 id="dh">You're all set</h2><p>The clock is joining your network. It'll show up in the app in a moment.</p></div>
+<h2 id="dh">You're all set</h2><p>The clock is joining your network. It'll show up in the app in a moment.</p><p id="dloc" class="hint"></p></div>
 <script>
 var ls=d('ls'),ll=d('ll'),pp=d('pp'),pf=d('pf'),pw=d('pw'),pl=d('pl'),pin=d('pin'),go=d('go'),gt=d('gt'),rs=d('rs'),er=d('er'),sel=null;
 function d(i){return document.getElementById(i)}
@@ -1039,7 +1050,9 @@ go.onclick=function(){if(!sel)return;go.disabled=true;er.style.display='none';go
 var body='ssid='+encodeURIComponent(sel.s)+'&pass='+encodeURIComponent(pw.value)+'&pin='+encodeURIComponent(pin.value)+'&tz='+encodeURIComponent(tz());
 fetch('/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
 .then(function(r){return r.json()}).then(function(j){
-if(j.ok){d('dh').textContent='Connected to '+sel.s;d('dn').classList.add('show')}
+if(j.ok){d('dh').textContent='Connected to '+sel.s;
+d('dloc').textContent=j.geo?('Approximate location set ('+(j.city||'nearby')+') -- refine it in the app for accuracy.'):'Location not found automatically -- set it in the app (Settings > Device > Location).';
+d('dn').classList.add('show')}
 else{er.style.display='block';go.disabled=false;go.innerHTML='<span id="gt">Try again</span>'}})
 .catch(function(){er.style.display='block';go.disabled=false;go.innerHTML='<span id="gt">Try again</span>'})};
 skel();scan();
@@ -1088,6 +1101,37 @@ bool wifiTryConnect(uint32_t ms = 15000) {
         saveConfig();
     }
     return false;
+}
+
+// Best-effort approximate location, called from /connect right after the ESP
+// joins the home network (real internet, setup AP still up for the phone).
+// Closes the gap where the WiFi portal only ever set a timezone, never
+// coordinates, leaving Sun mode computing sunrise/sunset for the London-area
+// placeholder default. City-level accurate at best (IP geolocation, not
+// GPS) -- good enough for sun math, not a substitute for the app's real
+// GPS/city picker, which is why the app still warns if this doesn't land.
+// Plain HTTP on purpose: ip-api.com's free tier needs no key and no TLS,
+// which keeps this off BearSSL (meaningful RAM on an ESP8266 already running
+// WiFi + a radar UART parser + a web server). Never blocks setup on failure.
+bool geolocateByIP(float &lat, float &lon, String &city) {
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(4000);
+    if (!http.begin(client, "http://ip-api.com/json/?fields=status,lat,lon,city")) return false;
+    int code = http.GET();
+    bool ok = false;
+    if (code == 200) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, http.getString()) &&
+            strcmp(doc["status"] | "", "success") == 0) {
+            lat = doc["lat"] | 0.0f;
+            lon = doc["lon"] | 0.0f;
+            city = String((const char *)(doc["city"] | ""));
+            ok = true;
+        }
+    }
+    http.end();
+    return ok;
 }
 
 // The custom captive portal. Blocks (like WiFiManager did) until a network is
@@ -1140,8 +1184,22 @@ bool runSetupPortal(uint32_t timeoutSec) {
             // Only a value that looks like a POSIX rule -- a scripting-off
             // browser posts this empty, and an empty must not wipe a good rule.
             if (tz.length() >= 3) strlcpy(cfg.tzPosix, tz.c_str(), sizeof(cfg.tzPosix));
+
+            // Best-effort approximate location -- see geolocateByIP(). Never
+            // blocks setup on failure; the app's location warning banner
+            // catches it if this doesn't land.
+            float glat, glon; String city;
+            bool geoOk = geolocateByIP(glat, glon, city);
+            if (geoOk) { cfg.lat = glat; cfg.lon = glon; }
+
             saveConfig();
-            portal.send(200, "application/json", "{\"ok\":true}");
+            JsonDocument resp;
+            resp["ok"] = true;
+            resp["geo"] = geoOk;
+            if (geoOk) resp["city"] = city;
+            String out;
+            serializeJson(resp, out);
+            portal.send(200, "application/json", out);
             connected = true;
         } else {
             portal.send(200, "application/json", "{\"ok\":false}");
@@ -1625,8 +1683,18 @@ void apiSensorConfigPost() {
 }
 
 // Blocking for the whole calibration run (the sensor must stay in config mode
-// throughout, or it stops) -- capped at 20s. A deliberate one-off setup
+// throughout, or it stops) -- capped at 120s. A deliberate one-off setup
 // action, same tradeoff as OTA already blocking the clock.
+//
+// Raised from the original 20s (then 60s): the reference example this library
+// ships polls calibrationProgress() with NO time cap at all (just until 100%
+// or a real comms failure), because how long the sensor's own calibration
+// takes isn't something the host can predict -- it depends on the room. Both
+// 20s and 60s cut off runs that were still legitimately progressing (seen
+// stuck at 14%, then 75%, with no communication errors at all -- the
+// consecutive-miss counter below already independently guards against a truly
+// dead link, so this outer cap only needs to be a generous backstop against
+// an endless run, not a tight budget).
 void apiSensorCalibratePost() {
     if (!apiAuthOK()) return apiUnauthorized();
     JsonDocument doc;
@@ -1638,23 +1706,52 @@ void apiSensorCalibratePost() {
     // Permissive: enter config + start best-effort, then let the progress
     // polling be the real signal. If calibration never actually started,
     // calibrationProgress() fails immediately and we report not-ok.
+    //
+    // A single missed poll must NOT abort an otherwise-healthy run: the sensor
+    // keeps calibrating on its own regardless of whether the ESP heard the
+    // last status reply, so one dropped/garbled byte on a routine 500ms poll
+    // used to throw away real progress (e.g. stopping at "14%" when the
+    // sensor was still calibrating fine) instead of just retrying. Only give
+    // up early if several polls in a row fail -- that's a genuinely dead link,
+    // not a transient miss.
     radar.enableConfig(2500);
     radar.startCalibration(trig, hold, micro);
     uint8_t percent = 0;
     bool gotProgress = false;
+    uint8_t consecutiveMisses = 0;
     unsigned long start = millis();
-    while (millis() - start < 20000) {
-        if (!radar.calibrationProgress(percent)) break;
-        gotProgress = true;
-        if (percent >= 100) break;
+    while (millis() - start < 120000) {
+        if (radar.calibrationProgress(percent)) {
+            gotProgress = true;
+            consecutiveMisses = 0;
+            if (percent >= 100) break;
+        } else if (++consecutiveMisses >= 4) {
+            break;   // ~2s of consecutive silence -- treat as genuinely gone
+        }
         delay(500);
+    }
+    // Only meaningful once calibration actually finished -- ask while still in
+    // config mode, before endConfig() resumes the data stream.
+    bool interference = false;
+    uint16_t interferenceGates = 0;
+    bool gotInterference = false;
+    if (percent >= 100) {
+        gotInterference = radar.readCalibrationInterference(interference, interferenceGates);
     }
     radar.endConfig();
     if (!gotProgress) {
         httpServer.send(504, "application/json", "{\"error\":\"sensor not responding\"}");
         return;
     }
-    String out = String("{\"ok\":") + (percent >= 100 ? "true" : "false") + ",\"percent\":" + percent + "}";
+    JsonDocument resp;
+    resp["ok"] = percent >= 100;
+    resp["percent"] = percent;
+    if (gotInterference) {
+        resp["interference"] = interference;
+        if (interference) resp["interferenceGates"] = interferenceGates;
+    }
+    String out;
+    serializeJson(resp, out);
     httpServer.send(200, "application/json", out);
 }
 
@@ -2049,11 +2146,25 @@ void loop() {
         }
     }
 
+    // Blanks just the colon LED 800ms into each second, without waiting for
+    // the once-a-second full redraw below -- a cheap direct frame edit (no
+    // RTC read, no digit recompute), so the flash timing doesn't depend on
+    // the 1Hz tick.
+    static bool colonBlankedThisSec = false;
+    if (!manualMode && !btnPressed && colonOn &&
+        millis() - lastTick >= 800 && !colonBlankedThisSec) {
+        colonBlankedThisSec = true;
+        colonOn = false;
+        frame[COLON_OUT] = false;
+        shiftFrame();
+    }
+
     // btnPressed suppresses the tick's redraw: it would otherwise paint the
     // time back over the button screen within a second of it appearing.
     if (!manualMode && !btnPressed && millis() - lastTick >= 1000) {
         lastTick = millis();
-        colonOn = !colonOn;              // blink colon each second
+        colonOn = true;                  // on again for the new second
+        colonBlankedThisSec = false;
         // Alternates between the notice and the real date/year. Both halves
         // are configurable ('a' over serial); onS = 0 disables it outright.
         // An offS of 0 with a non-zero onS leaves it permanently on, which is

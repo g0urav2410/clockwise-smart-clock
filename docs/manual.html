@@ -36,7 +36,7 @@ WiFi — no cloud, no account, no broker required.</p>
 <li><a href="#time-and-the-rtc">Time and the RTC</a></li>
 <li><a href="#http-api">HTTP API</a></li>
 <li><a href="#config-reference">Config reference</a></li>
-<li><a href="#serial-console-behind-a-toggle">Serial console</a></li>
+<li><a href="#serial-commands">Serial commands</a></li>
 <li><a href="#updating-firmware">Updating firmware</a></li>
 <li><a href="#location-and-timezone">Location and timezone</a></li>
 <li><a href="#resetting-the-clock">Resetting the clock</a></li>
@@ -478,7 +478,7 @@ the middle hours differing because the eye can't rank opacity that finely.</p>
 <p>The day's sun positions are computed once and cached, so the twilight sliders can
 show the time an angle produces on every frame of a drag.</p>
 <h3 id="testing-sun-mode-without-waiting-for-dusk">Testing sun mode without waiting for dusk</h3>
-<p><code>firmware/tools_fake_sun.py</code> shifts the clock's longitude to fake a
+<p><code>firmware_pio/tools_fake_sun.py</code> shifts the clock's longitude to fake a
 different sun position, leaving the RTC untouched:</p>
 <pre><code>py tools_fake_sun.py --host 192.168.0.50 25        aim sun mode at 25%
 py tools_fake_sun.py --host 192.168.0.50 restore   put the real longitude back
@@ -722,7 +722,7 @@ would be misread as commands (it blanked the display), so the serial console is
   <strong>asleep</strong>. Flipping the toggle can't break anything.</li>
 <li><strong>On + sensor unplugged:</strong> ~2 s after the stream stops, the console <strong>wakes
   up</strong> — the same command set listed in
-  <a href="https://github.com/g0urav2410/clockwise-smart-clock/blob/master/firmware/SERIAL_COMMANDS.md">firmware/SERIAL_COMMANDS.md</a>.</li>
+  <a href="firmware_pio/SERIAL_COMMANDS.md">firmware_pio/SERIAL_COMMANDS.md</a>.</li>
 </ul>
 <p>USB <em>flashing</em> works regardless of the toggle. Turn it off to return to normal.</p>
 <h2 id="presence-sensor-hlk-ld2402">Presence sensor (HLK-LD2402)</h2>
@@ -785,11 +785,10 @@ they finish or time out.</p>
 <hr>
 <h2 id="updating-firmware">Updating firmware</h2>
 <p>Over the air, no cable:</p>
-<pre><code>cd firmware
+<pre><code>cd firmware_pio
 pio run
-curl -u admin:&lt;your-PIN&gt; -F &quot;firmware=@.pio/build/d1_mini/firmware.bin&quot; http://&lt;clock-ip&gt;/update
+curl -F &quot;firmware=@.pio/build/d1_mini/firmware.bin&quot; http://&lt;clock-ip&gt;/update
 </code></pre>
-<p>(If you didn't set a PIN, drop the <code>-u admin:&lt;your-PIN&gt;</code> part.)</p>
 <p>It reboots itself and comes back in about 15 seconds. If a PIN is set, add
 <code>-u admin:&lt;pin&gt;</code>. An interrupted upload leaves the old firmware intact.</p>
 <hr>
@@ -814,6 +813,17 @@ re-resolves it against the current date on every NTP sync. Set the place once
 and the nightly 03:00 sync keeps it right through every future transition,
 forever, with the app never involved again.</p>
 <p>India has no daylight saving, so <code>IST-5:30</code> never changes.</p>
+<h3 id="the-clock-face-on-home">The clock face on Home</h3>
+<p>The top of the Home screen draws the actual 7-segment clock face — day column,
+digits, colon, amber divider, D/M/Y — as its own Flutter widget
+(<code>app/lib/widgets/seven_segment_clock.dart</code>), built to match the Home
+Assistant Lovelace card pixel-for-pixel rather than showing a plain text
+readout. It reflects live state (polled every 4s) and settings like the logo
+LED (polled every ~12s, since those change far less often).</p>
+<p>The colon blinks <strong>on for 800ms, a brief 200ms blank, once per second</strong> — one
+clear flash marks each second, rather than a 50/50 on/off that only completes
+a cycle every two seconds and is hard to count by eye. This timing is shared
+across the physical clock's LED, the HA card, and this app widget.</p>
 <h3 id="the-drift-warning-on-home">The drift warning on Home</h3>
 <p>Compares what the clock's RTC reports against universal time plus the clock's
 <em>own</em> timezone offset — not against the phone's clock. A clock deliberately
@@ -902,13 +912,13 @@ doesn't, check the twilight settings — they move each end independently.</p>
 setting carries both the timezone and the sun position, and the clock applies
 that region's daylight saving itself from then on, so setting it once fixes it
 for good. If the clock is deliberately set somewhere else, it is <em>supposed</em> to
-show that place's time.</p>
+show that place's time. See ISSUES.md #5.</p>
 <p><strong>Forgot the WiFi password / need to switch networks.</strong> Use the D2 reset
 button — hold until the 3rd flash, then let go. See
 <a href="#resetting-the-clock">Resetting the clock</a>.</p>
 <hr>
-<p>For hardware internals and how the display was reverse-engineered, see the
-<a href="https://g0urav2410.github.io/clockwise-smart-clock/docs.html">hardware docs</a>.</p>
+<p>See <a href="ISSUES.md">ISSUES.md</a> for known problems and <a href="LEFTOFF.md">LEFTOFF.md</a> for
+work in progress.</p>
 </article>
 
 <footer class="site">Open source (GPL v3) · built on the ESP8266 ·

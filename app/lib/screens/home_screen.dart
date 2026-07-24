@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/clock_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/clock_card.dart';
+import '../widgets/location_sheet.dart';
+import '../widgets/seven_segment_clock.dart';
 import 'add_device_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -22,6 +25,7 @@ class HomeScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
           const ConnectionBanner(),
+          const LocationWarningBanner(),
           GlassCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -139,8 +143,46 @@ class HomeScreen extends StatelessWidget {
 /// What the clock itself thinks the time is. This is the whole point of the
 /// device, so it leads the screen — and because it's the clock's own RTC and
 /// not the phone's clock, drift shows up here instead of hiding.
-class _ClockTimeCard extends StatelessWidget {
+///
+/// Styled to echo the physical clock face / HA Lovelace card (big glowing
+/// digits, blinking colon, connection dot) rather than looking like a
+/// generic status row, since this is meant to feel like a mini clock-face,
+/// not just a data field.
+class _ClockTimeCard extends StatefulWidget {
   const _ClockTimeCard();
+
+  @override
+  State<_ClockTimeCard> createState() => _ClockTimeCardState();
+}
+
+class _ClockTimeCardState extends State<_ClockTimeCard> {
+  late final Timer _blinkTimer;
+  bool _colonOn = true;
+
+  // On for 800ms, a brief 200ms blank each second — one clear flash per
+  // second (like a tick), rather than a 50/50 on/off that takes two seconds
+  // per cycle and is hard to count by eye. Matches the HA card's animation
+  // and the physical clock's LED colon (see `colonOn` in main.cpp).
+  void _scheduleBlink() {
+    setState(() => _colonOn = true);
+    Timer(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      setState(() => _colonOn = false);
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleBlink();
+    _blinkTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) => _scheduleBlink());
+  }
+
+  @override
+  void dispose() {
+    _blinkTimer.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,31 +216,107 @@ class _ClockTimeCard extends StatelessWidget {
     if (diff > 720) diff = 1440 - diff; // wrap around midnight
     final drifted = knowsZone && diff >= 2;
 
+    final online = ctl.isConnected;
+
+    // s.time is 24h "HH:MM:SS" from /api/state; the physical clock face (and
+    // the HA card, fed from the MQTT "time" entity) shows 12h "H:MM" with no
+    // leading zero — match that so the digits read the same everywhere.
+    final tParts = s.time!.split(':');
+    final hour24 = int.tryParse(tParts[0]) ?? 0;
+    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    final minuteStr = tParts.length > 1 ? tParts[1] : '00';
+
+    // date is "YYYY-MM-DD"; the face shows D / M(no leading zero) / Y, same
+    // split the HA card does.
+    final dParts = (s.date ?? '').split('-');
+    final yearStr = dParts.isNotEmpty ? dParts[0] : '';
+    final monthStr = dParts.length > 1 ? (int.tryParse(dParts[1])?.toString() ?? '') : '';
+    final dayStr = dParts.length > 2 ? dParts[2] : '';
+
+    // dow from /api/state is 0=Sun..6=Sat; the day column reads Mon..Sun.
+    final monSunIndex = s.dow == null ? -1 : (s.dow! + 6) % 7;
+
     return GlassCard(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(s.prettyTime!,
-              style: TextStyle(
-                  fontSize: 40, fontWeight: FontWeight.w300, color: c.title)),
-          const SizedBox(height: 2),
-          Text(
-            [s.dayName, s.date].whereType<String>().join(' · '),
-            style: TextStyle(fontSize: 12, color: c.muted),
-          ),
-          if (drifted) ...[
-            const SizedBox(height: 8),
-            Row(children: [
-              Icon(Icons.error_outline, size: 14, color: c.amber),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Clock is ${diff}m off for its timezone — try Sync now.',
-                  style: TextStyle(fontSize: 11, color: c.amber),
-                ),
+          SevenSegPanel(
+            child: Opacity(
+              opacity: online ? 1 : 0.35,
+              child: Column(
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SevenSegDowColumn(monSunIndex: monSunIndex, height: 82),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            SevenSegRow(hour12.toString(), height: 82),
+                            SevenSegColon(
+                              dotsOn: _colonOn && online,
+                              logoOn: online && (ctl.config?.logo ?? false),
+                              height: 82,
+                            ),
+                            SevenSegRow(minuteStr, height: 82),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SevenSegAmberBar(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      SevenSegLabeledGroup(value: dayStr, label: 'D'),
+                      SevenSegLabeledGroup(value: monthStr, label: 'M'),
+                      SevenSegLabeledGroup(value: yearStr, label: 'Y'),
+                    ],
+                  ),
+                ],
               ),
-            ]),
-          ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(14, 8, 14, drifted ? 4 : 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: online ? c.online : c.muted,
+                    boxShadow: online
+                        ? [BoxShadow(color: c.online.withValues(alpha: 0.6), blurRadius: 6)]
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  online ? 'Connected' : 'Offline',
+                  style: TextStyle(fontSize: 11, color: c.muted),
+                ),
+              ],
+            ),
+          ),
+          if (drifted)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+              child: Row(children: [
+                Icon(Icons.error_outline, size: 14, color: c.amber),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Clock is ${diff}m off for its timezone — try Sync now.',
+                    style: TextStyle(fontSize: 11, color: c.amber),
+                  ),
+                ),
+              ]),
+            ),
         ],
       ),
     );
@@ -275,6 +393,54 @@ class ConnectionBanner extends StatelessWidget {
             child: Text(text,
                 style: TextStyle(
                     fontSize: 12, color: color, fontWeight: FontWeight.w500)),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// The WiFi setup portal (browser-based) only ever sends the timezone rule,
+/// never coordinates -- so a clock that's only ever been through the portal
+/// is silently sitting on the firmware's placeholder lat/lon (near Greenwich)
+/// while showing a real timezone. Sun mode then computes sunrise/sunset for
+/// the wrong place entirely and displays it in the right timezone, which
+/// looks like nonsense (e.g. sunset at 1am). Catch that exact placeholder and
+/// nudge toward Settings -- Device -- Location, the only place that actually
+/// sets real coordinates.
+class LocationWarningBanner extends StatelessWidget {
+  const LocationWarningBanner({super.key});
+
+  static bool _isPlaceholder(double lat, double lon) =>
+      (lat - 51.48).abs() < 0.01 && lon.abs() < 0.01;
+
+  @override
+  Widget build(BuildContext context) {
+    final ctl = context.watch<ClockController>();
+    final c = Theme.of(context).extension<ClockColors>()!;
+    final cfg = ctl.config;
+    if (cfg == null || !_isPlaceholder(cfg.lat, cfg.lon)) {
+      return const SizedBox.shrink();
+    }
+
+    return GestureDetector(
+      onTap: () => showLocationSheet(context),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: c.amber.withValues(alpha: 0.12),
+          border: Border.all(color: c.amber.withValues(alpha: 0.3), width: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(children: [
+          Icon(Icons.location_off_outlined, size: 16, color: c.amber),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "No real location set yet — Sun mode won't be accurate. Tap to set it.",
+              style: TextStyle(fontSize: 12, color: c.amber, fontWeight: FontWeight.w500),
+            ),
           ),
         ]),
       ),

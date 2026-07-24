@@ -164,8 +164,11 @@ class ClockwiseCard extends HTMLElement {
         .cw .colon .logo{width:11px;height:11px;border-radius:50%;background:#26282e;margin-top:3px;flex:0 0 auto;transition:background .2s,box-shadow .2s}
         .cw .colon .logo.on{background:#ff3b3b;box-shadow:0 0 9px 2px rgba(255,59,59,.6)}
         .cw .cdots{flex:1;display:flex;flex-direction:column;justify-content:center;gap:22px}
-        .cw .cdots i{width:14px;height:14px;border-radius:50%;background:var(--fg);box-shadow:0 0 12px 2px rgba(230,238,255,.55);animation:cwblink 2s steps(1,end) infinite}
-        @keyframes cwblink{0%,50%{opacity:1}50.01%,100%{opacity:.12}}
+        .cw .cdots i{width:14px;height:14px;border-radius:50%;background:var(--fg);box-shadow:0 0 12px 2px rgba(230,238,255,.55);animation:cwblink 1s steps(1,end) infinite}
+        /* On for 800ms, a brief 200ms blank each second -- one clear flash per
+           second (like a tick) instead of a 50/50 on/off that only completes
+           one cycle every two seconds, which is hard to count by eye. */
+        @keyframes cwblink{0%,80%{opacity:1}80.01%,100%{opacity:.12}}
         /* Blinking implies a live clock -- freeze it dim while the data isn't. */
         .cw.offline .cdots i{animation:none;opacity:.12;box-shadow:none}
         .cw .toast{position:absolute;left:50%;top:10px;transform:translate(-50%,-6px);background:rgba(34,211,238,.16);color:#22d3ee;font-size:12px;font-weight:600;padding:5px 12px;border-radius:16px;box-shadow:inset 0 0 0 1px rgba(34,211,238,.35);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:5}

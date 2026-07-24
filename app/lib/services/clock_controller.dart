@@ -250,13 +250,23 @@ class ClockController extends ChangeNotifier {
   int _consecutiveFailures = 0;
   static const _failuresBeforeUnreachable = 3;
 
-  /// Cheap poll — live state only, no config re-fetch.
+  // Config (logo LED, brightness curve, schedule, etc.) rarely changes and is
+  // a separate, slightly heavier call, so it isn't re-fetched on every 4s
+  // tick -- only every 3rd one (~12s). Without this, a setting changed from
+  // outside the app (HA, MQTT) wouldn't show up here until the next manual
+  // refresh, even though state-driven things update within 4s.
+  int _pollCount = 0;
+
+  /// Cheap poll — live state (and, every few ticks, config) only.
   Future<void> _pollState() async {
     final api = _api;
     if (api == null || !_foreground) return;
     if (_dragging) return;   // don't fight the user's finger
     try {
       state = await _serialized(api.state);
+      if (_pollCount++ % 3 == 0) {
+        config = await _serialized(api.config);
+      }
       _consecutiveFailures = 0;
       if (status != ConnStatus.connected) {
         status = ConnStatus.connected;

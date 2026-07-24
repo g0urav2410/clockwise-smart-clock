@@ -14,7 +14,7 @@ WiFi — no cloud, no account, no broker required.
 - [Time and the RTC](#time-and-the-rtc)
 - [HTTP API](#http-api)
 - [Config reference](#config-reference)
-- [Serial console](#serial-console-behind-a-toggle)
+- [Serial commands](#serial-commands)
 - [Updating firmware](#updating-firmware)
 - [Location and timezone](#location-and-timezone)
 - [Resetting the clock](#resetting-the-clock)
@@ -267,7 +267,7 @@ show the time an angle produces on every frame of a drag.
 
 ### Testing sun mode without waiting for dusk
 
-`firmware/tools_fake_sun.py` shifts the clock's longitude to fake a
+`firmware_pio/tools_fake_sun.py` shifts the clock's longitude to fake a
 different sun position, leaving the RTC untouched:
 
 ```
@@ -395,7 +395,7 @@ If you do need the console (bench work, a repair), there's a persisted toggle �
   **asleep**. Flipping the toggle can't break anything.
 - **On + sensor unplugged:** ~2 s after the stream stops, the console **wakes
   up** — the same command set listed in
-  [firmware/SERIAL_COMMANDS.md](https://github.com/g0urav2410/clockwise-smart-clock/blob/master/firmware/SERIAL_COMMANDS.md).
+  [firmware_pio/SERIAL_COMMANDS.md](firmware_pio/SERIAL_COMMANDS.md).
 
 USB *flashing* works regardless of the toggle. Turn it off to return to normal.
 
@@ -445,12 +445,10 @@ they finish or time out.
 Over the air, no cable:
 
 ```
-cd firmware
+cd firmware_pio
 pio run
-curl -u admin:<your-PIN> -F "firmware=@.pio/build/d1_mini/firmware.bin" http://<clock-ip>/update
+curl -F "firmware=@.pio/build/d1_mini/firmware.bin" http://<clock-ip>/update
 ```
-
-(If you didn't set a PIN, drop the `-u admin:<your-PIN>` part.)
 
 It reboots itself and comes back in about 15 seconds. If a PIN is set, add
 `-u admin:<pin>`. An interrupted upload leaves the old firmware intact.
@@ -482,6 +480,20 @@ and the nightly 03:00 sync keeps it right through every future transition,
 forever, with the app never involved again.
 
 India has no daylight saving, so `IST-5:30` never changes.
+
+### The clock face on Home
+
+The top of the Home screen draws the actual 7-segment clock face — day column,
+digits, colon, amber divider, D/M/Y — as its own Flutter widget
+(`app/lib/widgets/seven_segment_clock.dart`), built to match the Home
+Assistant Lovelace card pixel-for-pixel rather than showing a plain text
+readout. It reflects live state (polled every 4s) and settings like the logo
+LED (polled every ~12s, since those change far less often).
+
+The colon blinks **on for 800ms, a brief 200ms blank, once per second** — one
+clear flash marks each second, rather than a 50/50 on/off that only completes
+a cycle every two seconds and is hard to count by eye. This timing is shared
+across the physical clock's LED, the HA card, and this app widget.
 
 ### The drift warning on Home
 
@@ -571,7 +583,7 @@ doesn't, check the twilight settings — they move each end independently.
 setting carries both the timezone and the sun position, and the clock applies
 that region's daylight saving itself from then on, so setting it once fixes it
 for good. If the clock is deliberately set somewhere else, it is *supposed* to
-show that place's time.
+show that place's time. See ISSUES.md #5.
 
 **Forgot the WiFi password / need to switch networks.** Use the D2 reset
 button — hold until the 3rd flash, then let go. See
@@ -579,5 +591,5 @@ button — hold until the 3rd flash, then let go. See
 
 ---
 
-For hardware internals and how the display was reverse-engineered, see the
-[hardware docs](https://g0urav2410.github.io/clockwise-smart-clock/docs.html).
+See [ISSUES.md](ISSUES.md) for known problems and [LEFTOFF.md](LEFTOFF.md) for
+work in progress.
