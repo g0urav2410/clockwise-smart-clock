@@ -613,7 +613,11 @@ class _GateTuningCard extends StatefulWidget {
 class _GateTuningCardState extends State<_GateTuningCard> {
   bool _loading = false;
   bool _saving = false;
-  bool _togglingFullData = false;
+  // Off by default even once loaded/streaming -- so opening this card just
+  // shows the live signal, and dragging a threshold (with its save actions)
+  // is a deliberate second step, not something that can happen by accident
+  // while just looking at the bars.
+  bool _editMode = false;
   String? _error;
   List<double> _motion = [];
   List<double> _micro = [];
@@ -629,29 +633,19 @@ class _GateTuningCardState extends State<_GateTuningCard> {
       _motion[i] != _savedMotion[i] || _micro[i] != _savedMicro[i];
   bool get _anyDirty => List.generate(_motion.length, (i) => i).any(_gateDirty);
 
-  // Merged in here rather than its own card: the live bars this whole card is
-  // built around only exist when Full data is on, so having the toggle live
-  // somewhere else meant opening this card with it off just silently showed
-  // no signal, with nothing here explaining why.
-  Future<void> _toggleFullData(bool v) async {
-    final api = widget.apiOf();
-    if (api == null) return;
-    setState(() => _togglingFullData = true);
-    try {
-      await api.setSensorConfig({'engineering': v});
-      widget.onEngineeringChanged();
-    } catch (e) {
-      if (mounted) showToast(context, 'Failed: $e');
-    } finally {
-      if (mounted) setState(() => _togglingFullData = false);
-    }
-  }
-
-  Future<void> _load() async {
+  // One button now does both: turns Full data on (if it isn't already -- no
+  // point loading thresholds you can't watch live) and loads them. Used to be
+  // two separate steps (a toggle elsewhere, then this button); merging them
+  // means there's nothing to forget or get confused about the order of.
+  Future<void> _loadAndStream() async {
     final api = widget.apiOf();
     if (api == null) return;
     setState(() { _loading = true; _error = null; });
     try {
+      if (!widget.engineering) {
+        await api.setSensorConfig({'engineering': true});
+        widget.onEngineeringChanged();
+      }
       final t = await api.sensorThresholds();
       setState(() {
         // null (a gate that didn't read) falls back to a sane mid value so the
@@ -696,42 +690,10 @@ class _GateTuningCardState extends State<_GateTuningCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Per-gate tuning', style: TextStyle(fontSize: 14, color: c.title)),
-                  const SizedBox(height: 2),
-                  Text('Full data', style: TextStyle(fontSize: 11, color: c.muted)),
-                ],
-              ),
-            ),
-            _togglingFullData
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Switch(value: widget.engineering, onChanged: _toggleFullData),
-          ]),
+          Text('Per-gate tuning', style: TextStyle(fontSize: 14, color: c.title)),
           const SizedBox(height: 2),
-          Text('Set how strong a signal must be to count as "someone there", '
-              'separately for each distance slice. The coloured bar is the live '
-              'signal; the marker is your threshold. Signal past the marker = detected.',
+          Text('Live signal for each ~0.7 m distance slice.',
               style: TextStyle(fontSize: 11, color: c.muted)),
-          if (!widget.engineering)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(children: [
-                Icon(Icons.info_outline, size: 14, color: c.amber),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Full data is off, so there\'s no live signal to show here '
-                    'while tuning -- switch above. You can still view and edit '
-                    'saved thresholds.',
-                    style: TextStyle(fontSize: 11, color: c.amber),
-                  ),
-                ),
-              ]),
-            ),
           if (!loaded) ...[
             const SizedBox(height: 12),
             if (_error != null) ...[
@@ -739,34 +701,50 @@ class _GateTuningCardState extends State<_GateTuningCard> {
               const SizedBox(height: 8),
             ],
             FilledButton.icon(
-              onPressed: _loading ? null : _load,
+              onPressed: _loading ? null : _loadAndStream,
               icon: _loading
                   ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.tune, size: 16),
-              label: Text(_loading ? 'Loading…' : 'Load per-gate thresholds'),
+                  : const Icon(Icons.sensors, size: 16),
+              label: Text(_loading ? 'Loading…' : 'Show live gate signal'),
             ),
           ] else ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: Text(
+                  _editMode
+                      ? 'Drag a marker to set that gate\'s threshold. Signal past the marker = detected.'
+                      : 'Viewing only. Turn on editing to adjust thresholds.',
+                  style: TextStyle(fontSize: 11, color: c.muted),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('Edit', style: TextStyle(fontSize: 11, color: c.muted)),
+              Switch(value: _editMode, onChanged: (v) => setState(() => _editMode = v)),
+            ]),
+            const SizedBox(height: 8),
             for (int i = 0; i < 16; i++)
               _gateRow(c, i,
                   motionEnergy: (live != null && i < live.motionEnergyDb.length) ? live.motionEnergyDb[i] : null,
                   microEnergy: (live != null && i < live.microEnergyDb.length) ? live.microEnergyDb[i] : null),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _loading ? null : _load,
-                  child: const Text('Reload'),
+            if (_editMode) ...[
+              const SizedBox(height: 4),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _loading ? null : _loadAndStream,
+                    child: const Text('Reload'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  onPressed: (_saving || !_anyDirty) ? null : _save,
-                  child: Text(_saving ? 'Saving…' : (_anyDirty ? 'Save to sensor' : 'Nothing to save')),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: (_saving || !_anyDirty) ? null : _save,
+                    child: Text(_saving ? 'Saving…' : (_anyDirty ? 'Save to sensor' : 'Nothing to save')),
+                  ),
                 ),
-              ),
-            ]),
+              ]),
+            ],
           ],
         ],
       ),
@@ -807,8 +785,9 @@ class _GateTuningCardState extends State<_GateTuningCard> {
                 style: TextStyle(fontSize: 12, color: c.title, fontWeight: FontWeight.w500)),
             const Spacer(),
             // No point offering to save a gate that hasn't actually changed
-            // since it was last loaded/saved -- nothing there to write.
-            if (dirty || saving)
+            // since it was last loaded/saved -- nothing there to write. Also
+            // only in edit mode -- can't dirty a gate while just viewing.
+            if (_editMode && (dirty || saving))
               InkWell(
                 onTap: saving ? null : () => _saveGate(i),
                 child: Padding(
@@ -850,19 +829,25 @@ class _GateTuningCardState extends State<_GateTuningCard> {
                 valueColor: AlwaysStoppedAnimation(color.withValues(alpha: 0.5)),
               ),
             ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 1,
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              activeTrackColor: Colors.transparent,
-              inactiveTrackColor: Colors.transparent,
-              thumbColor: color,
-            ),
-            child: Slider(
-              value: threshold.clamp(0.0, _maxDb),
-              min: 0, max: _maxDb,
-              onChanged: onChanged,
+          // The marker itself stays visible while just viewing -- it's useful
+          // info (where's the threshold relative to the signal) -- only
+          // dragging it is gated on edit mode.
+          IgnorePointer(
+            ignoring: !_editMode,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 1,
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                activeTrackColor: Colors.transparent,
+                inactiveTrackColor: Colors.transparent,
+                thumbColor: color,
+              ),
+              child: Slider(
+                value: threshold.clamp(0.0, _maxDb),
+                min: 0, max: _maxDb,
+                onChanged: onChanged,
+              ),
             ),
           ),
         ]),
