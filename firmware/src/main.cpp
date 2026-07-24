@@ -178,6 +178,19 @@ struct Config {
     // Use debug mode with the sensor physically unplugged (USB is on the same
     // two pins). Persisted so it stays where you leave it; the app shows which.
     bool serialDebug = false;
+    // Optional scheduled restart -- resets heap fragmentation to 0 rather than
+    // trying to eliminate it in code (not realistically fixable: any web
+    // request handling does some varying-sized temporary allocation). Off by
+    // default -- this is an experiment the user opted into, not a default
+    // behavior. intervalDays is free-form (the app offers day/week/month
+    // presets: 1/7/30) so it can be tuned. lastAutoRebootDayCount anchors the
+    // schedule and is persisted so a reboot doesn't forget where it was, and
+    // so flipping the toggle on doesn't fire an immediate surprise restart --
+    // it's set to "today" whenever the schedule is (re)armed, not left at 0.
+    bool autoRebootEnabled       = false;
+    uint8_t autoRebootIntervalDays = 7;
+    uint8_t autoRebootHour         = 4;   // after the 3am NTP sync, before anyone's usually looking
+    long autoRebootAnchorDay       = 0;
 } cfg;
 
 const char *CFG_PATH = "/cfg.json";
@@ -235,6 +248,10 @@ void loadConfig() {
     cfg.presenceAwayPct    = doc["presenceAway"]    | 0;
     cfg.presenceTimeoutMin = doc["presenceTimeout"] | 5;
     cfg.serialDebug        = doc["serialDebug"]     | false;
+    cfg.autoRebootEnabled     = doc["autoReboot"]       | false;
+    cfg.autoRebootIntervalDays = doc["autoRebootDays"]  | 7;
+    cfg.autoRebootHour        = doc["autoRebootHour"]   | 4;
+    cfg.autoRebootAnchorDay   = doc["autoRebootAnchor"] | 0;
 }
 
 void saveConfig() {
@@ -279,6 +296,10 @@ void saveConfig() {
     doc["presenceAway"]     = cfg.presenceAwayPct;
     doc["presenceTimeout"]  = cfg.presenceTimeoutMin;
     doc["serialDebug"]      = cfg.serialDebug;
+    doc["autoReboot"]       = cfg.autoRebootEnabled;
+    doc["autoRebootDays"]   = cfg.autoRebootIntervalDays;
+    doc["autoRebootHour"]   = cfg.autoRebootHour;
+    doc["autoRebootAnchor"] = cfg.autoRebootAnchorDay;
     File f = LittleFS.open(CFG_PATH, "w");
     if (!f) { Serial.println("Config save failed (open)"); return; }
     serializeJson(doc, f);
@@ -523,6 +544,19 @@ bool isNightHour(int h24) {
     return (cfg.nightStart < cfg.nightEnd)
         ? (h24 >= cfg.nightStart && h24 < cfg.nightEnd)
         : (h24 >= cfg.nightStart || h24 < cfg.nightEnd);
+}
+
+// Days-since-a-fixed-epoch, for the scheduled-restart interval (Howard
+// Hinnant's civil_from_days algorithm, well-known and exact across leap
+// years/month lengths -- unlike yr*365+dayOfYear, which drifts). Only needs
+// to be monotonic and consistent day-to-day, not calendar-meaningful.
+long daysFromCivil(int y, int m, int d) {
+    y -= m <= 2;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (long)doe - 719468;
 }
 
 // While the user is dragging a slider in the app we hold the scheduler off.
@@ -1384,6 +1418,31 @@ void applyConfigJson(const JsonDocument &doc) {
         // on the next tick instead of needing a physical reset to recover.
         if (!cfg.serialDebug) manualMode = false;
     }
+    // Re-arm the schedule's anchor to "today" whenever it's (re)enabled or its
+    // timing changes -- without this, turning the toggle on with the stale/0
+    // anchor already past the interval would fire an immediate restart the
+    // very next minute matching the hour, instead of properly waiting out the
+    // interval from when the user actually turned it on.
+    bool autoRebootWasOff = !cfg.autoRebootEnabled;
+    bool autoRebootRearm = false;
+    if (doc["autoReboot"].is<bool>()) {
+        cfg.autoRebootEnabled = doc["autoReboot"];
+        if (cfg.autoRebootEnabled && autoRebootWasOff) autoRebootRearm = true;
+    }
+    if (doc["autoRebootDays"].is<int>()) {
+        cfg.autoRebootIntervalDays = (uint8_t)constrain((int)doc["autoRebootDays"], 1, 365);
+        autoRebootRearm = true;
+    }
+    if (doc["autoRebootHour"].is<int>()) {
+        cfg.autoRebootHour = (uint8_t)constrain((int)doc["autoRebootHour"], 0, 23);
+        autoRebootRearm = true;
+    }
+    if (autoRebootRearm) {
+        int h, m, s, dd, mo, yr, dw; bool pm;
+        if (rtcReadAll(h, pm, m, s, dd, mo, yr, dw)) {
+            cfg.autoRebootAnchorDay = daysFromCivil(yr, mo, dd);
+        }
+    }
     saveConfig();
     if (tzChanged && WiFi.status() == WL_CONNECTED) ntpSync();
 
@@ -1545,6 +1604,9 @@ void apiConfigGet() {
     doc["presenceAway"]    = cfg.presenceAwayPct;
     doc["presenceTimeout"] = cfg.presenceTimeoutMin;
     doc["serialDebug"]     = cfg.serialDebug;
+    doc["autoReboot"]      = cfg.autoRebootEnabled;
+    doc["autoRebootDays"]  = cfg.autoRebootIntervalDays;
+    doc["autoRebootHour"]  = cfg.autoRebootHour;
     String out; serializeJson(doc, out);
     httpServer.send(200, "application/json", out);
 }
@@ -2411,6 +2473,21 @@ void loop() {
                 lastAutoSyncDay = dd;
                 Serial.println("Auto NTP sync (daily)");
                 ntpSync();
+            }
+            // Optional scheduled restart, off by default -- see cfg.autoRebootEnabled.
+            // Checked once/minute like the NTP sync above; the anchor day is
+            // what actually prevents re-firing every minute through the
+            // trigger hour (it's advanced the instant this fires, and
+            // persisted so a reboot mid-check can't forget and loop).
+            if (cfg.autoRebootEnabled && h24 == cfg.autoRebootHour && m == 0) {
+                long today = daysFromCivil(yr, mo, dd);
+                if (today - cfg.autoRebootAnchorDay >= (long)cfg.autoRebootIntervalDays) {
+                    cfg.autoRebootAnchorDay = today;
+                    saveConfig();
+                    logAdd("Scheduled restart (every " + String(cfg.autoRebootIntervalDays) + "d)");
+                    delay(200);
+                    ESP.restart();
+                }
             }
             int dowRtc  = (dw == 0) ? 7 : dw;     // testing the actual fix: display uses the RTC's own register now
             int dowCalc = dowFromDate(yr, mo, dd); // still logged for comparison, not displayed

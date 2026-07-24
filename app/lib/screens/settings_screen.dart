@@ -261,6 +261,7 @@ class DevicePage extends StatelessWidget {
           ),
           const _OtaCard(),
           const _DeviceHealthCard(),
+          const _AutoRebootCard(),
         ],
       ),
     );
@@ -607,6 +608,105 @@ class _DeviceHealthCard extends StatelessWidget {
           Text(v, style: TextStyle(fontSize: 12, color: valueColor ?? c.title, fontWeight: FontWeight.w500)),
         ]),
       );
+}
+
+/// Optional scheduled restart -- resets heap fragmentation to 0 rather than
+/// trying to eliminate it in code (not realistically fixable; see the Device
+/// health card). Off by default -- an experiment the user opts into, with
+/// day/week/month presets since the useful interval isn't obvious upfront.
+class _AutoRebootCard extends StatefulWidget {
+  const _AutoRebootCard();
+  @override
+  State<_AutoRebootCard> createState() => _AutoRebootCardState();
+}
+
+class _AutoRebootCardState extends State<_AutoRebootCard> {
+  bool _filled = false;
+  late bool _enabled;
+  late int _days;
+  late int _hour;
+
+  // Nearest of the three presets to whatever's currently set, so a custom
+  // value from elsewhere (e.g. a future API caller) still lands on a sane
+  // chip instead of none being selected.
+  static const _presets = {1: 'Day', 7: 'Week', 30: 'Month'};
+
+  void _fill() {
+    final cfg = context.read<ClockController>().config;
+    if (_filled || cfg == null) return;
+    _filled = true;
+    _enabled = cfg.autoReboot;
+    _days = cfg.autoRebootDays;
+    _hour = cfg.autoRebootHour;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctl = context.watch<ClockController>();
+    final c = Theme.of(context).extension<ClockColors>()!;
+    final cfg = ctl.config;
+    _fill();
+    if (cfg == null) return const SizedBox.shrink();
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Scheduled restart', style: TextStyle(fontSize: 13, color: c.title)),
+                  const SizedBox(height: 2),
+                  Text('Resets memory fragmentation to 0 on a schedule. '
+                      'Off by default -- an experiment, not a fix for a '
+                      'problem you\'re actually seeing.',
+                      style: TextStyle(fontSize: 11, color: c.muted)),
+                ],
+              ),
+            ),
+            Switch(
+              value: _enabled,
+              onChanged: (v) {
+                setState(() => _enabled = v);
+                ctl.patchConfig({'autoReboot': v});
+              },
+            ),
+          ]),
+          if (_enabled) ...[
+            const SizedBox(height: 10),
+            Text('Every', style: TextStyle(fontSize: 12, color: c.muted)),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                for (final e in _presets.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(e.value),
+                      selected: _days == e.key,
+                      onSelected: (_) {
+                        setState(() => _days = e.key);
+                        ctl.patchConfig({'autoRebootDays': e.key});
+                      },
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text('At $_hour:00 (device time)', style: TextStyle(fontSize: 12, color: c.muted)),
+            Slider(
+              value: _hour.clamp(0, 23).toDouble(),
+              min: 0, max: 23, divisions: 23,
+              onChanged: (v) => setState(() => _hour = v.round()),
+              onChangeEnd: (v) => ctl.patchConfig({'autoRebootHour': v.round()}),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 String base64EncodeCreds(String user, String pass) =>

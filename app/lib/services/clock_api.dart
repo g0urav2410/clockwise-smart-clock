@@ -401,6 +401,12 @@ class ClockConfig {
   /// console's (true) -- never both. Turning debug on pauses the sensor.
   final bool serialDebug;
 
+  /// Optional scheduled restart, off by default -- resets heap fragmentation
+  /// to 0 rather than trying to eliminate it. autoRebootDays is free-form
+  /// (the UI offers day/week/month presets: 1/7/30).
+  final bool autoReboot;
+  final int autoRebootDays, autoRebootHour;
+
   ClockConfig({
     required this.name,
     required this.mqttHost,
@@ -434,6 +440,9 @@ class ClockConfig {
     this.presenceAway = 0,
     this.presenceTimeout = 5,
     this.serialDebug = false,
+    this.autoReboot = false,
+    this.autoRebootDays = 7,
+    this.autoRebootHour = 4,
   });
 
   factory ClockConfig.fromJson(Map<String, dynamic> j) => ClockConfig(
@@ -473,5 +482,8 @@ class ClockConfig {
     presenceAway: (j['presenceAway'] ?? 0) as int,
     presenceTimeout: (j['presenceTimeout'] ?? 5) as int,
     serialDebug: j['serialDebug'] == true,
+    autoReboot: j['autoReboot'] == true,
+    autoRebootDays: (j['autoRebootDays'] ?? 7) as int,
+    autoRebootHour: (j['autoRebootHour'] ?? 4) as int,
   );
 }
