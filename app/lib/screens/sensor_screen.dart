@@ -133,12 +133,7 @@ class _SensorScreenState extends State<SensorScreen> {
                 FilledButton(onPressed: _loadConfig, child: const Text('Retry')),
               ]),
             )
-          else if (_cfg != null) ...[
-            _FullDataToggleCard(
-              engineering: _cfg!.engineering,
-              onChanged: () => _loadConfig(),
-              apiOf: () => _api(context),
-            ),
+          else if (_cfg != null)
             _ConfigCard(
               cfg: _cfg!,
               onSaved: () async {
@@ -147,14 +142,18 @@ class _SensorScreenState extends State<SensorScreen> {
               },
               apiOf: () => _api(context),
             ),
-          ],
           if (_cfg != null)
             _CalibrationCard(
               apiOf: () => _api(context),
               onBusyChanged: (busy) => setState(() => _sensorBusy = busy),
             ),
           if (_cfg != null)
-            _GateTuningCard(apiOf: () => _api(context), liveOf: () => _live),
+            _GateTuningCard(
+              apiOf: () => _api(context),
+              liveOf: () => _live,
+              engineering: _cfg!.engineering,
+              onEngineeringChanged: () => _loadConfig(),
+            ),
           _SerialDebugCard(ctl: ctl),
         ],
       ),
@@ -365,61 +364,6 @@ class _DimOverlayCardState extends State<_DimOverlayCard> {
           ],
         ],
       ),
-    );
-  }
-}
-
-/// Applies the moment you flip it -- unlike the sliders below (distance,
-/// delay, thresholds), which stage changes until you press Apply/Save. This
-/// one has nothing else to batch with, so there's no reason to make it wait.
-/// The firmware always persists this specific flag to the ESP's own flash on
-/// every apply (it's the clock's own preference, not the sensor's), so there
-/// is no separate "save to sensor" step for it either.
-class _FullDataToggleCard extends StatefulWidget {
-  final bool engineering;
-  final VoidCallback onChanged;
-  final ClockApi? Function() apiOf;
-  const _FullDataToggleCard({required this.engineering, required this.onChanged, required this.apiOf});
-  @override
-  State<_FullDataToggleCard> createState() => _FullDataToggleCardState();
-}
-
-class _FullDataToggleCardState extends State<_FullDataToggleCard> {
-  bool _busy = false;
-
-  Future<void> _toggle(bool v) async {
-    final api = widget.apiOf();
-    if (api == null) return;
-    setState(() => _busy = true);
-    try {
-      await api.setSensorConfig({'engineering': v});
-      widget.onChanged();
-    } catch (e) {
-      if (mounted) showToast(context, 'Failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = Theme.of(context).extension<ClockColors>()!;
-    return GlassCard(
-      child: Row(children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Full data', style: TextStyle(fontSize: 13, color: c.title)),
-              Text('Distance + per-gate energy, not just presence',
-                  style: TextStyle(fontSize: 11, color: c.muted)),
-            ],
-          ),
-        ),
-        _busy
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-            : Switch(value: widget.engineering, onChanged: _toggle),
-      ]),
     );
   }
 }
@@ -712,7 +656,14 @@ class _SerialDebugCard extends StatelessWidget {
 class _GateTuningCard extends StatefulWidget {
   final ClockApi? Function() apiOf;
   final SensorState? Function() liveOf;
-  const _GateTuningCard({required this.apiOf, required this.liveOf});
+  final bool engineering;
+  final VoidCallback onEngineeringChanged;
+  const _GateTuningCard({
+    required this.apiOf,
+    required this.liveOf,
+    required this.engineering,
+    required this.onEngineeringChanged,
+  });
   @override
   State<_GateTuningCard> createState() => _GateTuningCardState();
 }
@@ -720,10 +671,29 @@ class _GateTuningCard extends StatefulWidget {
 class _GateTuningCardState extends State<_GateTuningCard> {
   bool _loading = false;
   bool _saving = false;
+  bool _togglingFullData = false;
   String? _error;
   List<double> _motion = [];
   List<double> _micro = [];
   static const double _maxDb = 80;
+
+  // Merged in here rather than its own card: the live bars this whole card is
+  // built around only exist when Full data is on, so having the toggle live
+  // somewhere else meant opening this card with it off just silently showed
+  // no signal, with nothing here explaining why.
+  Future<void> _toggleFullData(bool v) async {
+    final api = widget.apiOf();
+    if (api == null) return;
+    setState(() => _togglingFullData = true);
+    try {
+      await api.setSensorConfig({'engineering': v});
+      widget.onEngineeringChanged();
+    } catch (e) {
+      if (mounted) showToast(context, 'Failed: $e');
+    } finally {
+      if (mounted) setState(() => _togglingFullData = false);
+    }
+  }
 
   Future<void> _load() async {
     final api = widget.apiOf();
@@ -770,12 +740,42 @@ class _GateTuningCardState extends State<_GateTuningCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Per-gate tuning', style: TextStyle(fontSize: 14, color: c.title)),
+          Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Per-gate tuning', style: TextStyle(fontSize: 14, color: c.title)),
+                  const SizedBox(height: 2),
+                  Text('Full data', style: TextStyle(fontSize: 11, color: c.muted)),
+                ],
+              ),
+            ),
+            _togglingFullData
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : Switch(value: widget.engineering, onChanged: _toggleFullData),
+          ]),
           const SizedBox(height: 2),
           Text('Set how strong a signal must be to count as "someone there", '
               'separately for each distance slice. The coloured bar is the live '
               'signal; the marker is your threshold. Signal past the marker = detected.',
               style: TextStyle(fontSize: 11, color: c.muted)),
+          if (!widget.engineering)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(children: [
+                Icon(Icons.info_outline, size: 14, color: c.amber),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Full data is off, so there\'s no live signal to show here '
+                    'while tuning -- switch above. You can still view and edit '
+                    'saved thresholds.',
+                    style: TextStyle(fontSize: 11, color: c.amber),
+                  ),
+                ),
+              ]),
+            ),
           if (!loaded) ...[
             const SizedBox(height: 12),
             if (_error != null) ...[
