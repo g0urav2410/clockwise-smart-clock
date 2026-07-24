@@ -520,7 +520,7 @@ and <code>:01</code>–<code>:09</code> drops the tens digit. This is a design c
 <tr>
 <td>GET</td>
 <td><code>/api/info</code></td>
-<td>name, firmware version, IP, chip ID, whether auth is required</td>
+<td>name, firmware version, IP, chip ID, whether auth is required, static device-health facts (see below)</td>
 </tr>
 <tr>
 <td>GET</td>
@@ -553,6 +553,16 @@ and <code>:01</code>–<code>:09</code> drops the tens digit. This is a design c
 <td><code>{"cmd": "sync"}</code> or <code>{"cmd": "reboot"}</code></td>
 </tr>
 <tr>
+<td>GET</td>
+<td><code>/api/log</code></td>
+<td>recent notable events (NTP, calibration, sensor recovery, config changes, boot) — see <a href="#device-log--debug-console">Device log</a></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/debugcmd</code></td>
+<td><code>{"cmd": "s"}</code> — runs one debug-console command over HTTP, same set as the USB console</td>
+</tr>
+<tr>
 <td>POST</td>
 <td><code>/update</code></td>
 <td>OTA firmware upload</td>
@@ -563,8 +573,11 @@ and <code>:01</code>–<code>:09</code> drops the tens digit. This is a design c
 <pre><code class="language-json">{&quot;time&quot;:&quot;19:24:13&quot;,&quot;date&quot;:&quot;2026-07-18&quot;,&quot;dow&quot;:6,&quot;rtcOk&quot;:true,
  &quot;sunElev&quot;:17.83,&quot;sunPct&quot;:15,&quot;brightness&quot;:15,&quot;presence&quot;:false,
  &quot;lastSync&quot;:&quot;2026-07-18 19:21:51 Sat&quot;,&quot;rssi&quot;:-65,&quot;uptime&quot;:90,
- &quot;mqttConnected&quot;:false}
+ &quot;mqttConnected&quot;:false,&quot;manualMode&quot;:false,
+ &quot;freeHeap&quot;:31992,&quot;heapFragPct&quot;:2,&quot;loopHz&quot;:18428}
 </code></pre>
+<p><code>manualMode</code>/<code>freeHeap</code>/<code>heapFragPct</code>/<code>loopHz</code> are device-health/state fields
+added 2026-07-24 — see <a href="#device-health">Device health</a>.</p>
 <p><code>/api/brightness</code> sets the light immediately without saving, and holds off the
 scheduler for a few seconds so a preview isn't instantly overwritten. Use it for
 slider drags; persist the final value with <code>/api/config</code>.</p>
@@ -703,6 +716,26 @@ subset to <code>POST /api/config</code>.</p>
 <td>—</td>
 <td>optional broker</td>
 </tr>
+<tr>
+<td><code>serialDebug</code></td>
+<td>false</td>
+<td>USB debug console armed (sensor paused while armed + unplugged)</td>
+</tr>
+<tr>
+<td><code>autoReboot</code></td>
+<td>false</td>
+<td>scheduled restart on/off — see <a href="#device-health">Device health</a></td>
+</tr>
+<tr>
+<td><code>autoRebootDays</code></td>
+<td>7</td>
+<td>days between scheduled restarts (app offers 1/7/30 presets)</td>
+</tr>
+<tr>
+<td><code>autoRebootHour</code></td>
+<td>4</td>
+<td>hour of day (0-23, device time) the scheduled restart fires</td>
+</tr>
 </tbody>
 </table>
 <p><code>sched</code> is a legacy boolean kept for older MQTT clients. Sending it alone forces
@@ -725,6 +758,81 @@ would be misread as commands (it blanked the display), so the serial console is
   <a href="firmware_pio/SERIAL_COMMANDS.md">firmware_pio/SERIAL_COMMANDS.md</a>.</li>
 </ul>
 <p>USB <em>flashing</em> works regardless of the toggle. Turn it off to return to normal.</p>
+<hr>
+<h2 id="device-health">Device health</h2>
+<p>The ESP8266 has no real task scheduler and so no "CPU load %" to report — the
+closest useful equivalent, shown in <strong>Settings → Device → Device health</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Free memory</td>
+<td>RAM headroom. Steadily shrinking over days/weeks would mean a leak — a single reading swinging around minute to minute is normal and not the same thing.</td>
+</tr>
+<tr>
+<td>Memory fragmentation</td>
+<td>How chopped-up the free RAM is, as a %. A live, noisy snapshot (bounces with whatever the clock is doing at that instant) — watch free memory over time instead if actually worried.</td>
+</tr>
+<tr>
+<td>Main loop rate</td>
+<td>How many times/sec the firmware's main loop completes. The closest thing to "how busy is it" — drops while something's blocking (calibration, OTA, a slow config read), or under heavier HTTP request traffic.</td>
+</tr>
+<tr>
+<td>CPU speed</td>
+<td>Fixed setting (80/160MHz), not a live load.</td>
+</tr>
+<tr>
+<td>Firmware storage used</td>
+<td>Flash space the firmware occupies vs. what's left.</td>
+</tr>
+<tr>
+<td>Last reboot cause</td>
+<td>Power-on, crash/watchdog, or a software restart (e.g. after OTA).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="scheduled-restart">Scheduled restart</h3>
+<p>Optional, <strong>off by default</strong> — an experiment to opt into, not a default
+behavior. Memory fragmentation isn't realistically eliminable in code (any web
+request handling does some varying-sized temporary allocation); a scheduled
+restart just resets it to 0 instead. <strong>Settings → Device → Scheduled restart</strong>:
+a toggle, a Day/Week/Month interval, and an hour-of-day slider (device time,
+defaults to 4am — after the nightly NTP sync). Turning it on doesn't fire an
+immediate restart; the schedule is anchored to the day it's turned on (or
+retimed), so the first restart is properly a full interval away.</p>
+<hr>
+<h2 id="device-log-debug-console">Device log &amp; debug console</h2>
+<p><strong>Settings → Device log</strong> — a small in-RAM rolling log (40 entries, lost on
+reboot) plus a command input, for debugging without a USB cable. Goes entirely
+over WiFi/HTTP — it never touches the physical UART pins the sensor uses, so
+it works regardless of sensor/debug-console mode.</p>
+<p><strong>What's logged</strong>: boot (with reset reason), NTP sync results, calibration
+start/result, sensor auto-recovery, WiFi connect/disconnect, and any settings
+change (which keys changed, not values — passwords live in the same payloads).
+It is <em>not</em> a full mirror of the physical USB console's continuous output
+(the per-second tick log, etc.) — those exist behind <code>serialDebug</code> specifically
+because writing to Serial at all sends bytes out on the wire the sensor's RX
+listens on, so most of that output is intentionally suppressed while the
+sensor is active anyway.</p>
+<p><strong>Commands</strong> (<code>POST /api/debugcmd</code>, <code>{"cmd":"..."}</code>) mirror the same set the
+physical console takes (see
+<a href="firmware_pio/SERIAL_COMMANDS.md">firmware_pio/SERIAL_COMMANDS.md</a>) — but
+<code>runDebugCmd()</code> in <code>main.cpp</code> is a deliberately <strong>separate implementation</strong>
+from <code>handleSerialDebug()</code>, not shared code, so this HTTP path can never
+change how the physical console behaves.</p>
+<p>Commands that put the display into <strong>manual/test mode</strong> (a bare number, <code>c</code>,
+<code>x</code>, <code>n</code>, <code>p</code>) or write the RTC (<code>u</code>) ask for confirmation in the app before
+sending, since there's no way to see the clock's physical face to catch a
+mistake. Manual mode has <strong>no auto-timeout on the clock's side</strong> — the app's
+own safety net is that leaving the Device log screen after entering it from
+there automatically sends <code>r</code> to resume. <code>/api/state</code>'s <code>manualMode</code> field
+also drives a persistent warning banner if it's ever left on.</p>
+<hr>
 <h2 id="presence-sensor-hlk-ld2402">Presence sensor (HLK-LD2402)</h2>
 <p>On the hardware UART, engineering mode — full data. Controlled from
 <strong>Settings → Presence sensor</strong> in the app, over these endpoints:</p>
@@ -753,6 +861,10 @@ would be misread as commands (it blanked the display), so the serial console is
 <td>all 16 motion + 16 micro per-gate thresholds</td>
 </tr>
 <tr>
+<td><code>POST /api/sensor/gate</code></td>
+<td><code>{"gate":N, "motionThresholdDb":x, "microThresholdDb":y, "save":true}</code> — writes one gate without touching the other 15</td>
+</tr>
+<tr>
 <td><code>POST /api/sensor/calibrate</code></td>
 <td>auto-generate thresholds for the room</td>
 </tr>
@@ -769,6 +881,26 @@ number). Each gate has a motion threshold (moving targets) and a micro
 threshold (still / breathing). Presence-based auto-dim ("dim when empty") is
 on the same screen. See the standalone
 <a href="https://github.com/g0urav2410/LD2402">LD2402</a> library for the protocol.</p>
+<p><strong>Per-gate tuning (Settings → Presence sensor)</strong> — one card handles both
+viewing and adjusting:</p>
+<ol>
+<li><strong>"Show live gate signal"</strong> turns Full data on (if it wasn't already) and
+   loads the 16 gates' current thresholds in one step.</li>
+<li>Opens <strong>view-only</strong>: live signal bars for every gate, with each threshold
+   shown as a marker on the bar (visible, not draggable) — safe to just look
+   without risk of nudging a value by accident.</li>
+<li>An <strong>Edit</strong> switch in the same section unlocks dragging the markers, and
+   reveals <strong>Save this gate</strong> (writes just that one gate, via
+   <code>/api/sensor/gate</code>) and a bulk <strong>Save to sensor</strong> for everything changed.
+   Both are disabled/hidden once there's nothing unsaved to write.</li>
+</ol>
+<p><strong>Apply vs. Save to sensor</strong>, for the separate <strong>Range &amp; timing</strong> card (max
+distance, disappearance delay): Apply sends the value live (the sensor's RAM)
+so it's in effect immediately, but reverts if the sensor module itself loses
+power. Save to sensor additionally commits it to the sensor's own flash, so it
+survives that. This distinction is the sensor firmware's own design (flash has
+limited write cycles) — the <strong>Full data</strong> toggle doesn't have this split
+because the ESP always persists that one flag itself, regardless.</p>
 <h3 id="calibrating">Calibrating</h3>
 <p><strong>Auto-calibrate</strong> (Settings → Presence sensor) generates fresh thresholds for
 the room the clock is actually in. It can take <strong>up to two minutes</strong> — the

@@ -25,9 +25,13 @@ ESP 7-segment clock. Support for more boards is planned.
   presence, motion vs. still, and distance. Optional **dim-when-empty**.
 - 📶 **Easy setup** — first boot opens a **captive-portal** WiFi setup page (scan,
   pick network, set an optional PIN, timezone auto-detected in the browser).
-- 📱 **Companion app** — a Flutter app (Android) for full control and sensor tuning.
+- 📱 **Companion app** — a Flutter app (Android) with a native clock-face
+  widget (matches the HA card pixel-for-pixel), full control, and sensor tuning.
 - 🏠 **Home Assistant** — MQTT **auto-discovery** builds the whole device; plus an
   optional custom **Lovelace card** that recreates the 7-segment face live.
+- 🩺 **Device health & debug tools** — free memory/loop-rate/reset-cause in the
+  app, an optional scheduled restart, and a small event log + debug console
+  over WiFi (no USB cable needed).
 - 🔒 **Secured** — PIN-protected HTTP API, authenticated **OTA** updates.
 - 💡 Logo LED, physical reset button (WiFi reset / factory reset), and more.
 
