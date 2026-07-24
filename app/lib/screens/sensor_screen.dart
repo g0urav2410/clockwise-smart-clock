@@ -133,7 +133,12 @@ class _SensorScreenState extends State<SensorScreen> {
                 FilledButton(onPressed: _loadConfig, child: const Text('Retry')),
               ]),
             )
-          else if (_cfg != null)
+          else if (_cfg != null) ...[
+            _FullDataToggleCard(
+              engineering: _cfg!.engineering,
+              onChanged: () => _loadConfig(),
+              apiOf: () => _api(context),
+            ),
             _ConfigCard(
               cfg: _cfg!,
               onSaved: () async {
@@ -142,6 +147,7 @@ class _SensorScreenState extends State<SensorScreen> {
               },
               apiOf: () => _api(context),
             ),
+          ],
           if (_cfg != null)
             _CalibrationCard(
               apiOf: () => _api(context),
@@ -363,6 +369,61 @@ class _DimOverlayCardState extends State<_DimOverlayCard> {
   }
 }
 
+/// Applies the moment you flip it -- unlike the sliders below (distance,
+/// delay, thresholds), which stage changes until you press Apply/Save. This
+/// one has nothing else to batch with, so there's no reason to make it wait.
+/// The firmware always persists this specific flag to the ESP's own flash on
+/// every apply (it's the clock's own preference, not the sensor's), so there
+/// is no separate "save to sensor" step for it either.
+class _FullDataToggleCard extends StatefulWidget {
+  final bool engineering;
+  final VoidCallback onChanged;
+  final ClockApi? Function() apiOf;
+  const _FullDataToggleCard({required this.engineering, required this.onChanged, required this.apiOf});
+  @override
+  State<_FullDataToggleCard> createState() => _FullDataToggleCardState();
+}
+
+class _FullDataToggleCardState extends State<_FullDataToggleCard> {
+  bool _busy = false;
+
+  Future<void> _toggle(bool v) async {
+    final api = widget.apiOf();
+    if (api == null) return;
+    setState(() => _busy = true);
+    try {
+      await api.setSensorConfig({'engineering': v});
+      widget.onChanged();
+    } catch (e) {
+      if (mounted) showToast(context, 'Failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).extension<ClockColors>()!;
+    return GlassCard(
+      child: Row(children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Full data', style: TextStyle(fontSize: 13, color: c.title)),
+              Text('Distance + per-gate energy, not just presence',
+                  style: TextStyle(fontSize: 11, color: c.muted)),
+            ],
+          ),
+        ),
+        _busy
+            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+            : Switch(value: widget.engineering, onChanged: _toggle),
+      ]),
+    );
+  }
+}
+
 class _ConfigCard extends StatefulWidget {
   final SensorConfig cfg;
   final VoidCallback onSaved;
@@ -375,7 +436,6 @@ class _ConfigCard extends StatefulWidget {
 class _ConfigCardState extends State<_ConfigCard> {
   late double _maxDist = widget.cfg.maxDistanceM;
   late int _delay = widget.cfg.disappearDelaySec;
-  late bool _engineering = widget.cfg.engineering;
   bool _busy = false;
   bool _expanded = false;
   late List<double> _motionTh = List.of(widget.cfg.motionThresholdDb);
@@ -387,7 +447,6 @@ class _ConfigCardState extends State<_ConfigCard> {
     setState(() => _busy = true);
     try {
       await api.setSensorConfig({
-        'engineering': _engineering,
         'maxDistanceM': _maxDist,
         'disappearDelaySec': _delay,
         if (_motionTh.length == 16) 'motionThresholdDb': _motionTh,
@@ -408,27 +467,13 @@ class _ConfigCardState extends State<_ConfigCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Sensor settings', style: TextStyle(fontSize: 14, color: c.title)),
+          Text('Range & timing', style: TextStyle(fontSize: 14, color: c.title)),
           if (widget.cfg.firmware != null) ...[
             const SizedBox(height: 2),
             Text('Firmware ${widget.cfg.firmware}${widget.cfg.serial != null ? ' · SN ${widget.cfg.serial}' : ''}',
                 style: TextStyle(fontSize: 11, color: c.muted)),
           ],
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Full data', style: TextStyle(fontSize: 13, color: c.title)),
-                  Text('Distance + per-gate energy, not just presence',
-                      style: TextStyle(fontSize: 11, color: c.muted)),
-                ],
-              ),
-            ),
-            Switch(value: _engineering, onChanged: (v) => setState(() => _engineering = v)),
-          ]),
-          const SizedBox(height: 6),
           Text('Max distance: ${_maxDist.toStringAsFixed(1)} m',
               style: TextStyle(fontSize: 12, color: c.muted)),
           Slider(

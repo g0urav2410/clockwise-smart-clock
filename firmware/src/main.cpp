@@ -1773,6 +1773,15 @@ void apiSensorConfigPost() {
     JsonDocument doc;
     if (deserializeJson(doc, httpServer.arg("plain"))) { httpServer.send(400, "application/json", "{\"error\":\"bad json\"}"); return; }
 
+    if (doc.size() > 0) {
+        String keys;
+        for (JsonPairConst kv : doc.as<JsonObjectConst>()) {
+            if (keys.length()) keys += ", ";
+            keys += kv.key().c_str();
+        }
+        logAdd("Sensor config changed: " + keys + (doc["save"] | false ? " (saved to sensor)" : ""));
+    }
+
     if (doc["engineering"].is<bool>()) {
         bool eng = doc["engineering"];
         if (eng != cfg.sensorEngineering) { cfg.sensorEngineering = eng; saveConfig(); }
@@ -1827,6 +1836,7 @@ void apiSensorGatePost() {
     if (gate < 0 || gate > 15) {
         httpServer.send(400, "application/json", "{\"error\":\"gate must be 0-15\"}"); return;
     }
+    logAdd("Gate " + String(gate) + " threshold changed" + (doc["save"] | false ? " (saved to sensor)" : ""));
     radar.enableConfig(2500);
     bool ok = true;
     if (doc["motionThresholdDb"].is<float>())
