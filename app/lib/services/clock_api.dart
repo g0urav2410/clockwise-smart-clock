@@ -34,10 +34,11 @@ class ClockApi {
     return _decode(r);
   }
 
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body,
+      {Duration? timeoutOverride}) async {
     final r = await _client
         .post(_u(path), headers: _headers, body: jsonEncode(body))
-        .timeout(timeout);
+        .timeout(timeoutOverride ?? timeout);
     return _decode(r);
   }
 
@@ -98,11 +99,48 @@ class ClockApi {
     return (motion: parse('motionThresholdDb'), micro: parse('microThresholdDb'));
   }
 
-  /// Blocks for the whole calibration run (up to ~20s on the clock's side).
-  Future<Map<String, dynamic>> calibrateSensor({int trigger = 3, int hold = 3, int micro = 3}) =>
-      _post('/api/sensor/calibrate', {'trigger': trigger, 'hold': hold, 'micro': micro});
+  /// Writes one gate's threshold(s) without touching any other gate — unlike
+  /// [setSensorConfig]'s array form, which writes positionally from index 0
+  /// and would zero out earlier gates if you sent a short array just to
+  /// change one. `save: true` also commits to the sensor's own flash.
+  Future<void> setSensorGate(int gate, {double? motionDb, double? microDb, bool save = false}) =>
+      _post('/api/sensor/gate', {
+        'gate': gate,
+        if (motionDb != null) 'motionThresholdDb': motionDb,
+        if (microDb != null) 'microThresholdDb': microDb,
+        if (save) 'save': true,
+      });
 
-  Future<Map<String, dynamic>> autoGainSensor() => _post('/api/sensor/autogain', {});
+  /// Blocks for the whole calibration run (up to ~120s on the clock's side --
+  /// the sensor's own datasheet gives no fixed duration for threshold
+  /// generation, it depends on the room, so the firmware doesn't cut it off
+  /// early -- plus enter/exit-config-mode overhead). The default 4s client
+  /// timeout used everywhere else would abort this long before the clock is
+  /// done, which looked like a sensor error but was really just the app
+  /// giving up too early.
+  Future<Map<String, dynamic>> calibrateSensor({int trigger = 3, int hold = 3, int micro = 3}) =>
+      _post('/api/sensor/calibrate', {'trigger': trigger, 'hold': hold, 'micro': micro},
+          timeoutOverride: const Duration(seconds: 125));
+
+  /// Same story as calibrateSensor -- worst case ~11.5s on the clock's side.
+  Future<Map<String, dynamic>> autoGainSensor() =>
+      _post('/api/sensor/autogain', {}, timeoutOverride: const Duration(seconds: 15));
+
+  /// Recent notable events (NTP sync, calibration, radar recovery, boot) from
+  /// the clock's small in-RAM log -- a stand-in for a serial monitor when
+  /// there's no USB plugged in. Oldest first; lost on reboot.
+  Future<List<String>> deviceLog() async {
+    final j = await _get('/api/log');
+    return ((j['log'] as List?) ?? []).map((e) => e.toString()).toList();
+  }
+
+  /// Runs one debug-console command (the same set the physical USB console
+  /// takes) and returns its result text. See DeviceLogScreen for the command
+  /// reference and which ones need confirmation before sending.
+  Future<String> sendDebugCmd(String cmd) async {
+    final j = await _post('/api/debugcmd', {'cmd': cmd});
+    return (j['output'] ?? '').toString();
+  }
 }
 
 /// `/api/sensor` — live readings, cheap to poll.
@@ -191,12 +229,22 @@ class ClockInfo {
   final String name, fw, ip, chipId;
   final bool authRequired;
 
+  /// Static device-health facts (don't change while running) — null on
+  /// firmware predating them.
+  final String? lastResetReason;
+  final int? cpuFreqMHz, sketchSize, freeSketchSpace, flashChipSize;
+
   ClockInfo({
     required this.name,
     required this.fw,
     required this.ip,
     required this.chipId,
     required this.authRequired,
+    this.lastResetReason,
+    this.cpuFreqMHz,
+    this.sketchSize,
+    this.freeSketchSpace,
+    this.flashChipSize,
   });
 
   factory ClockInfo.fromJson(Map<String, dynamic> j) => ClockInfo(
@@ -205,6 +253,11 @@ class ClockInfo {
     ip: j['ip'] ?? '',
     chipId: j['chipId'] ?? '',
     authRequired: j['authRequired'] == true,
+    lastResetReason: j['lastResetReason'] as String?,
+    cpuFreqMHz: (j['cpuFreqMHz'] as num?)?.toInt(),
+    sketchSize: (j['sketchSize'] as num?)?.toInt(),
+    freeSketchSpace: (j['freeSketchSpace'] as num?)?.toInt(),
+    flashChipSize: (j['flashChipSize'] as num?)?.toInt(),
   );
 }
 
@@ -233,6 +286,16 @@ class ClockStateData {
   /// empty room -- null on firmware predating the feature.
   final bool? presenceDimActive;
 
+  /// Rough device-health readout -- see MANUAL.md "The clock face on Home"
+  /// for why there's no real "CPU load %" on this chip. Null on firmware
+  /// predating them.
+  final int? freeHeap, heapFragPct, loopHz;
+
+  /// True while a debug command has put the display into manual/test mode --
+  /// no auto-timeout on the clock's side, so this is how the app knows to
+  /// warn/offer to resume rather than the display silently staying frozen.
+  final bool? manualMode;
+
   ClockStateData({
     required this.brightness,
     required this.presence,
@@ -248,6 +311,10 @@ class ClockStateData {
     this.sunPct,
     this.tzOffsetHours,
     this.presenceDimActive,
+    this.freeHeap,
+    this.heapFragPct,
+    this.loopHz,
+    this.manualMode,
   });
 
   factory ClockStateData.fromJson(Map<String, dynamic> j) => ClockStateData(
@@ -265,6 +332,10 @@ class ClockStateData {
     sunPct: (j['sunPct'] as num?)?.toInt(),
     tzOffsetHours: (j['tzOff'] as num?)?.toDouble(),
     presenceDimActive: j['presenceDimActive'] as bool?,
+    freeHeap: (j['freeHeap'] as num?)?.toInt(),
+    heapFragPct: (j['heapFragPct'] as num?)?.toInt(),
+    loopHz: (j['loopHz'] as num?)?.toInt(),
+    manualMode: j['manualMode'] as bool?,
   );
 
   static const _days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',

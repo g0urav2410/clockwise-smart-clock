@@ -351,6 +351,27 @@ int  manualPos  = 0;
 // handler in loop(). Up here because renderButtonHold() needs it too.
 const int BTN_ABORT = 15;
 
+// Small in-RAM log of notable events (NTP sync, calibration, radar recovery,
+// boot reason) for the app's debug log screen -- a lightweight stand-in for a
+// serial monitor when there's no USB plugged in. Ring buffer, oldest entries
+// simply age out; lost on reboot, which is fine since it's for "what's it
+// doing right now/recently", not a persistent history.
+const int LOG_CAP = 40;
+String logBuf[LOG_CAP];
+int logHead = 0, logCount = 0;
+void logAdd(const String &s) {
+    char ts[12]; snprintf(ts, sizeof(ts), "%lus: ", millis() / 1000);
+    logBuf[logHead] = String(ts) + s;
+    logHead = (logHead + 1) % LOG_CAP;
+    if (logCount < LOG_CAP) logCount++;
+}
+
+// Sampled once/sec from a free-running counter incremented at the top of
+// loop() -- a rough "how busy is the main loop" proxy, since there's no real
+// scheduler/CPU-load concept on this chip to report instead.
+unsigned long loopCounter = 0;
+unsigned long lastLoopHz  = 0;
+
 bool colonOn    = true;    // on for 800ms then a brief 200ms blank each
                            // second -- one clear flash per second (easy to
                            // count), rather than a 50/50 on/off that only
@@ -1236,7 +1257,7 @@ bool wifiConnect(uint32_t portalTimeoutSec = 180) {
 void ntpSync() {
     // Never opens the setup portal -- a background 03:00 sync must not hijack
     // the display into AP mode. Just uses whatever connection exists.
-    if (!wifiTryConnect(8000)) { Serial.println("NTP: no WiFi, skipped"); return; }
+    if (!wifiTryConnect(8000)) { Serial.println("NTP: no WiFi, skipped"); logAdd("NTP sync skipped: no WiFi"); return; }
     configTzTime(cfg.tzPosix, "pool.ntp.org", "time.nist.gov");
     Serial.print("NTP: syncing");
     struct tm t;
@@ -1258,8 +1279,10 @@ void ntpSync() {
             if (labs(driftSec) > SYNC_TOLERANCE_SEC) {
                 rtcWriteFull(t.tm_sec, t.tm_min, t.tm_hour, t.tm_wday, t.tm_mday, t.tm_mon + 1, t.tm_year + 1900);
                 Serial.printf("NTP: RTC drift %lds, corrected\n", driftSec);
+                logAdd("NTP synced, RTC drift " + String(driftSec) + "s, corrected");
             } else {
                 Serial.printf("NTP: RTC already accurate (drift %lds), no write\n", driftSec);
+                logAdd("NTP synced, RTC already accurate (drift " + String(driftSec) + "s)");
             }
             lastSyncStr = String(buf);
             if (mqtt.connected()) mqtt.publish("clock/lastsync", lastSyncStr.c_str(), true);
@@ -1268,6 +1291,7 @@ void ntpSync() {
         delay(500); Serial.print(".");
     }
     Serial.println("\nNTP: no time received");
+    logAdd("NTP sync failed: no time received");
 }
 
 // ── shared config-apply (used by both MQTT clock/config and the local API) ──
@@ -1421,6 +1445,13 @@ void apiInfo() {
     // reported every time /api/info is called, so whatever it was survives
     // long enough to actually check after the fact.
     doc["lastResetReason"] = ESP.getResetReason();
+    // Static device-health facts -- don't change while running, so they live
+    // in /api/info (fetched occasionally) rather than /api/state (polled
+    // every 4s).
+    doc["cpuFreqMHz"]      = ESP.getCpuFreqMHz();
+    doc["sketchSize"]      = ESP.getSketchSize();
+    doc["freeSketchSpace"] = ESP.getFreeSketchSpace();
+    doc["flashChipSize"]   = ESP.getFlashChipRealSize();
     String out; serializeJson(doc, out);
     httpServer.send(200, "application/json", out);
 }
@@ -1456,6 +1487,18 @@ void apiState() {
     doc["rssi"]          = WiFi.RSSI();
     doc["uptime"]        = millis() / 60000;
     doc["mqttConnected"] = mqtt.connected();
+    // So the app can show a persistent "manual mode active" warning -- entered
+    // via a debug command, it has no auto-timeout, so this is the only way the
+    // app would otherwise know the display has stopped showing the real time.
+    doc["manualMode"] = manualMode;
+    // Rough device-health readout, closest ESP8266 equivalent to a PC's
+    // resource meters -- there's no real task scheduler here to measure a
+    // "CPU load %" against, so free heap / fragmentation (the thing that
+    // actually causes long-uptime crashes) and the loop rate (drops if
+    // something's blocking) stand in for it.
+    doc["freeHeap"]     = ESP.getFreeHeap();
+    doc["heapFragPct"]  = ESP.getHeapFragmentation();
+    doc["loopHz"]        = lastLoopHz;
     // Today's UTC offset for cfg.tzPosix, DST already resolved. Reported so the
     // app can judge drift without keeping its own copy of the zone name -- a
     // fresh install, or a second phone, would otherwise have to compare against
@@ -1682,6 +1725,47 @@ void apiSensorConfigPost() {
     httpServer.send(200, "application/json", out);
 }
 
+// Single-gate threshold write, for the app's per-gate tuning screen. Kept
+// separate from apiSensorConfigPost's array form -- that one writes gates
+// positionally from index 0, so sending a short array to change just one
+// gate would silently zero out every gate before it. This takes an explicit
+// gate index instead, so touching gate 9 can never accidentally clobber
+// gates 0-8.
+// Oldest-first array of recent event strings -- see logAdd().
+void apiLogGet() {
+    if (!apiAuthOK()) return apiUnauthorized();
+    JsonDocument doc;
+    JsonArray a = doc["log"].to<JsonArray>();
+    int start = (logCount < LOG_CAP) ? 0 : logHead;
+    for (int i = 0; i < logCount; i++) a.add(logBuf[(start + i) % LOG_CAP]);
+    String out; serializeJson(doc, out);
+    httpServer.send(200, "application/json", out);
+}
+
+void apiSensorGatePost() {
+    if (!apiAuthOK()) return apiUnauthorized();
+    JsonDocument doc;
+    if (deserializeJson(doc, httpServer.arg("plain")) || !doc["gate"].is<int>()) {
+        httpServer.send(400, "application/json", "{\"error\":\"bad json\"}"); return;
+    }
+    int gate = doc["gate"];
+    if (gate < 0 || gate > 15) {
+        httpServer.send(400, "application/json", "{\"error\":\"gate must be 0-15\"}"); return;
+    }
+    radar.enableConfig(2500);
+    bool ok = true;
+    if (doc["motionThresholdDb"].is<float>())
+        ok &= radar.setMotionThresholdDb((uint8_t)gate, doc["motionThresholdDb"]);
+    if (doc["microThresholdDb"].is<float>())
+        ok &= radar.setMicroThresholdDb((uint8_t)gate, doc["microThresholdDb"]);
+    bool saved = true;
+    if (doc["save"] | false) saved = radar.saveParameters();
+    radar.endConfig();
+    String out = String("{\"ok\":") + (ok ? "true" : "false") +
+                 ",\"saved\":" + (saved ? "true" : "false") + "}";
+    httpServer.send(200, "application/json", out);
+}
+
 // Blocking for the whole calibration run (the sensor must stay in config mode
 // throughout, or it stops) -- capped at 120s. A deliberate one-off setup
 // action, same tradeoff as OTA already blocking the clock.
@@ -1714,6 +1798,7 @@ void apiSensorCalibratePost() {
     // sensor was still calibrating fine) instead of just retrying. Only give
     // up early if several polls in a row fail -- that's a genuinely dead link,
     // not a transient miss.
+    logAdd("Calibration started (trigger=" + String(trig) + " hold=" + String(hold) + " micro=" + String(micro) + ")");
     radar.enableConfig(2500);
     radar.startCalibration(trig, hold, micro);
     uint8_t percent = 0;
@@ -1740,9 +1825,12 @@ void apiSensorCalibratePost() {
     }
     radar.endConfig();
     if (!gotProgress) {
+        logAdd("Calibration failed: sensor not responding");
         httpServer.send(504, "application/json", "{\"error\":\"sensor not responding\"}");
         return;
     }
+    logAdd("Calibration " + String(percent >= 100 ? "complete" : "stopped") + " at " + String(percent) + "%" +
+           (gotInterference && interference ? " (interference detected)" : ""));
     JsonDocument resp;
     resp["ok"] = percent >= 100;
     resp["percent"] = percent;
@@ -1916,6 +2004,8 @@ unsigned long btnPressStart = 0;
 // what the display shows and which tier fires on release.
 int  btnHeldSecs = 0;
 
+void apiDebugCmdPost();   // defined below setup(), which registers it as a route
+
 void setup() {
     Serial.begin(115200); delay(300);
     radar.begin(Serial);
@@ -1966,6 +2056,9 @@ void setup() {
     httpServer.on("/api/sensor/config", HTTP_GET, apiSensorConfigGet);
     httpServer.on("/api/sensor/config", HTTP_POST, apiSensorConfigPost);
     httpServer.on("/api/sensor/thresholds", HTTP_GET, apiSensorThresholdsGet);
+    httpServer.on("/api/sensor/gate", HTTP_POST, apiSensorGatePost);
+    httpServer.on("/api/log", HTTP_GET, apiLogGet);
+    httpServer.on("/api/debugcmd", HTTP_POST, apiDebugCmdPost);
     httpServer.on("/api/sensor/calibrate", HTTP_POST, apiSensorCalibratePost);
     httpServer.on("/api/sensor/autogain", HTTP_POST, apiSensorAutoGainPost);
     // No browser upload form. Registered before httpUpdater so this GET handler
@@ -2004,6 +2097,128 @@ void setup() {
         Serial.println("g=toggle logo LED  l=toggle tick log  v=view raw RTC registers  a=WiFi-down notice timing");
         if (mdnsHost.length()) Serial.printf("Local API: http://%s.local/api/info\n", mdnsHost.c_str());
     }
+    logAdd("Booted, reason: " + ESP.getResetReason());
+}
+
+// Mimics Stream::parseInt() but reads from a String instead of Serial: skips
+// to the next digit (or '-'), then consumes the number. Used by runDebugCmd
+// so it can reuse the exact same command syntax as the physical console
+// without needing a real Stream.
+long dbgParseInt(const String &s, int &idx) {
+    int n = s.length();
+    while (idx < n && s[idx] != '-' && !isDigit(s[idx])) idx++;
+    bool neg = false;
+    if (idx < n && s[idx] == '-') { neg = true; idx++; }
+    long val = 0;
+    while (idx < n && isDigit(s[idx])) { val = val * 10 + (s[idx] - '0'); idx++; }
+    return neg ? -val : val;
+}
+
+// Runs one debug-console command from a string sent over HTTP, for the app's
+// "device log" screen -- same command set and syntax as handleSerialDebug()
+// below, but deliberately a SEPARATE implementation (not shared code) so that
+// adding this HTTP path can never change how the physical USB console
+// behaves. Returns human-readable result text instead of printing to Serial.
+// Commands that put the display into manual/test mode ('c', 'x', a bare
+// number) or write the RTC ('u') have no server-side confirmation gate --
+// the app is expected to warn before sending those, same as it would for any
+// other action that changes what the physical clock is doing.
+String runDebugCmd(const String &lineIn) {
+    String line = lineIn; line.trim();
+    if (line.length() == 0) return "(empty command)";
+    int idx = 0;
+    char c0 = line[0];
+    if (isDigit(c0) || c0 == '-') {
+        int j = (int)dbgParseInt(line, idx);
+        if (j >= 0 && j < NUM_OUTPUTS) {
+            manualMode = true; manualPos = j; showOne(j);
+            return "MANUAL out " + String(j) + " (chip " + String(j / 16) + ", o " + String(j % 16) + ")";
+        }
+        return "out of range (0-" + String(NUM_OUTPUTS - 1) + ")";
+    }
+    idx = 1;   // skip the command letter
+    switch (c0) {
+        case 'c': {
+            int chip = (int)dbgParseInt(line, idx);
+            if (chip < 0 || chip >= 7) return "chip must be 0-6";
+            manualMode = true;
+            for (int o = 0; o < 16; o += 2) setSeg(chip * 16 + o);
+            shiftFrame();
+            return "MANUAL chip " + String(chip) + " ADDED (even outs ON, " +
+                   String(chip * 16) + "-" + String(chip * 16 + 15) + ")";
+        }
+        case 'f': {
+            int hz = (int)dbgParseInt(line, idx);
+            if (hz < 100 || hz > 40000) return "freq must be 100-40000";
+            cfg.oeFreq = hz; analogWriteFreq(cfg.oeFreq); setBrightness(brightness); saveConfig();
+            return "OE freq -> " + String(cfg.oeFreq) + " Hz (saved)";
+        }
+        case 'x': manualMode = true; clearFrame(); shiftFrame(); return "MANUAL cleared";
+        case 'g': cfg.logoOn = !cfg.logoOn; saveConfig();
+                  return String("logo LED -> ") + (cfg.logoOn ? "ON" : "OFF");
+        case 'a': {
+            int on = (int)dbgParseInt(line, idx);
+            int off = (int)dbgParseInt(line, idx);
+            if (on < 0 || on > 300 || off < 0 || off > 300) return "usage: a <on 0-300> <off 0-300>";
+            cfg.wifiAlertOnS = on; cfg.wifiAlertOffS = off; saveConfig();
+            return "no Con notice -> " + String(on) + "s/" + String(off) + "s (saved)";
+        }
+        case 'l': tickLogEnabled = !tickLogEnabled;
+                  return String("tick log -> ") + (tickLogEnabled ? "ON" : "OFF");
+        case 'w': rtcSetKnown(); return "RTC set to known value";
+        case 'u': {
+            int yr = (int)dbgParseInt(line, idx), mo = (int)dbgParseInt(line, idx), dd = (int)dbgParseInt(line, idx);
+            int h24 = (int)dbgParseInt(line, idx), mn = (int)dbgParseInt(line, idx), se = (int)dbgParseInt(line, idx);
+            if (yr >= 2000 && yr <= 2099 && mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31 &&
+                h24 >= 0 && h24 <= 23 && mn >= 0 && mn <= 59 && se >= 0 && se <= 59) {
+                rtcWriteFull(se, mn, h24, dowSun0FromDate(yr, mo, dd), dd, mo, yr);
+                char b[48]; snprintf(b, sizeof(b), "RTC set to %04d-%02d-%02d %02d:%02d:%02d", yr, mo, dd, h24, mn, se);
+                return String(b);
+            }
+            return "usage: u <year> <month> <day> <hour24> <min> <sec>";
+        }
+        case 's': ntpSync(); return "NTP sync requested (see log for result)";
+        case 'r': manualMode = false; return "resumed clock display";
+        case 'n': manualMode = true; manualPos = (manualPos + 1) % NUM_OUTPUTS; showOne(manualPos);
+                  return "MANUAL out " + String(manualPos);
+        case 'p': manualMode = true; manualPos = (manualPos + NUM_OUTPUTS - 1) % NUM_OUTPUTS; showOne(manualPos);
+                  return "MANUAL out " + String(manualPos);
+        case '+': setBrightness(brightness + (brightness < 10 ? 1 : 5)); return "bright " + String(brightness) + "%";
+        case '-': setBrightness(brightness - (brightness <= 10 ? 1 : 5)); return "bright " + String(brightness) + "%";
+        case 't': {
+            int h, m, s, dd, mo, yr, dw; bool pm;
+            if (rtcReadAll(h, pm, m, s, dd, mo, yr, dw)) {
+                char b[48]; snprintf(b, sizeof(b), "%02d:%02d:%02d %s  %02d/%02d/%d", h, m, s, pm ? "PM" : "AM", dd, mo, yr);
+                return String(b);
+            }
+            return "RTC read fail";
+        }
+        case 'v': {
+            Wire.beginTransmission(SD3078_ADDR); Wire.write(0x00);
+            if (Wire.endTransmission(false) == 0 && Wire.requestFrom((uint8_t)SD3078_ADDR, (uint8_t)7) == 7) {
+                const char *names[7] = {"sec", "min", "hour", "dow", "date", "mon", "yr"};
+                String out = "RTC raw 00H-06H:";
+                for (int i = 0; i < 7; i++) { char b[16]; snprintf(b, sizeof(b), " %s=%02Xh", names[i], Wire.read()); out += b; }
+                return out;
+            }
+            return "RTC raw read fail";
+        }
+        default: return "unknown command '" + String(c0) + "'";
+    }
+}
+
+void apiDebugCmdPost() {
+    if (!apiAuthOK()) return apiUnauthorized();
+    JsonDocument doc;
+    if (deserializeJson(doc, httpServer.arg("plain")) || !doc["cmd"].is<const char*>()) {
+        httpServer.send(400, "application/json", "{\"error\":\"bad json\"}"); return;
+    }
+    String result = runDebugCmd(String((const char *)doc["cmd"]));
+    logAdd("cmd '" + String((const char *)doc["cmd"]) + "': " + result);
+    JsonDocument resp;
+    resp["output"] = result;
+    String out; serializeJson(resp, out);
+    httpServer.send(200, "application/json", out);
 }
 
 // The USB serial debug console -- only runs when cfg.serialDebug is true (the
@@ -2092,6 +2307,14 @@ void handleSerialDebug() {
 }
 
 void loop() {
+    loopCounter++;
+    static unsigned long lastLoopHzSample = 0;
+    if (millis() - lastLoopHzSample >= 1000) {
+        lastLoopHzSample = millis();
+        lastLoopHz = loopCounter;
+        loopCounter = 0;
+    }
+
     // The UART is either the radar's or the debug console's -- cfg.serialDebug
     // (the app toggle) picks which, and they are mutually exclusive because
     // they share the one wire. Default (false): every incoming byte goes to the
@@ -2140,6 +2363,7 @@ void loop() {
         const bool wentSilent = !radar.connected() && radar.lastByteMs() != 0 &&
                                 (millis() - radar.lastByteMs() > 6000);
         if (wrongMode || wentSilent) {
+            logAdd(String("Radar recovery: ") + (wentSilent ? "went silent" : "wrong output mode"));
             radar.enableConfig(300);
             radar.setOutputMode(cfg.sensorEngineering);
             radar.endConfig(300);

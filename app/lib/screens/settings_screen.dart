@@ -11,6 +11,7 @@ import '../widgets/clock_card.dart';
 import '../widgets/location_sheet.dart';
 import 'add_device_screen.dart';
 import 'debug_screen.dart';
+import 'device_log_screen.dart';
 import 'home_screen.dart' show showToast;
 import 'sensor_screen.dart';
 
@@ -40,6 +41,8 @@ class SettingsScreen extends StatelessWidget {
           _tile(context, Icons.bug_report_outlined, 'Display tuning',
               'Brightness curve, PWM frequency, step test',
               const DebugScreen()),
+          _tile(context, Icons.terminal, 'Device log',
+              'Recent events, like a serial monitor', const DeviceLogScreen()),
           Divider(color: c.divider),
           _tile(context, Icons.devices_other, 'My clocks',
               '${ctl.devices.length} added', const DevicesPage()),
@@ -257,6 +260,7 @@ class DevicePage extends StatelessWidget {
             ]),
           ),
           const _OtaCard(),
+          const _DeviceHealthCard(),
         ],
       ),
     );
@@ -531,6 +535,78 @@ class _OtaCardState extends State<_OtaCard> {
       ),
     );
   }
+}
+
+/// The ESP8266 has no real task scheduler and so no "CPU load %" to report —
+/// see MANUAL.md "The clock face on Home" for why. Free heap / fragmentation
+/// (the thing that actually causes long-uptime crashes) and the main-loop
+/// rate (drops if something's blocking) are the closest useful equivalent.
+class _DeviceHealthCard extends StatelessWidget {
+  const _DeviceHealthCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final ctl = context.watch<ClockController>();
+    final c = Theme.of(context).extension<ClockColors>()!;
+    final info = ctl.info;
+    final s = ctl.state;
+
+    // All of these are on firmware added 2026-07-24 -- silently show nothing
+    // rather than a card full of dashes on an older build.
+    if (s?.freeHeap == null && info?.cpuFreqMHz == null) {
+      return const SizedBox.shrink();
+    }
+
+    final fragPct = s?.heapFragPct;
+    final fragWarn = fragPct != null && fragPct >= 40;
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Device health', style: TextStyle(fontSize: 13, color: c.title)),
+          const SizedBox(height: 8),
+          if (s?.freeHeap != null) _kv(c, 'Free memory', '${(s!.freeHeap! / 1024).toStringAsFixed(1)} KB'),
+          if (fragPct != null)
+            _kv(
+              c,
+              'Memory fragmentation',
+              '$fragPct%',
+              valueColor: fragWarn ? c.amber : null,
+            ),
+          if (s?.loopHz != null) _kv(c, 'Main loop rate', '${s!.loopHz} Hz'),
+          if (info?.cpuFreqMHz != null) _kv(c, 'CPU speed', '${info!.cpuFreqMHz} MHz'),
+          if (info?.sketchSize != null && info?.freeSketchSpace != null)
+            _kv(c, 'Firmware storage used',
+                '${(info!.sketchSize! / 1024).toStringAsFixed(0)} / '
+                '${((info.sketchSize! + info.freeSketchSpace!) / 1024).toStringAsFixed(0)} KB'),
+          if (info?.lastResetReason != null) _kv(c, 'Last reboot cause', info!.lastResetReason!),
+          if (fragWarn) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              Icon(Icons.info_outline, size: 14, color: c.amber),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Memory is fairly fragmented. Usually harmless, but if the '
+                  'clock ever freezes after days of uptime, a reboot clears it.',
+                  style: TextStyle(fontSize: 11, color: c.amber),
+                ),
+              ),
+            ]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _kv(ClockColors c, String k, String v, {Color? valueColor}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(children: [
+          Expanded(child: Text(k, style: TextStyle(fontSize: 12, color: c.muted))),
+          Text(v, style: TextStyle(fontSize: 12, color: valueColor ?? c.title, fontWeight: FontWeight.w500)),
+        ]),
+      );
 }
 
 String base64EncodeCreds(String user, String pass) =>

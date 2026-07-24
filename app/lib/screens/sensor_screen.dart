@@ -10,9 +10,20 @@ import 'home_screen.dart' show showToast;
 /// The LD2402 splits range into fixed ~0.7m "gates". Gate 0 is nearest; each
 /// higher gate is one slice further out. Used to label everything by real
 /// distance instead of a bare gate number.
+///
+/// 16 gates * 0.7m = 11.2m in theory, but the datasheet caps supported range
+/// at 10.0m (matching setMaxDistanceMeters' own 0.7-10.0m clamp in the
+/// firmware) -- gate 15 is entirely past that, and gate 14 straddles it. Clip
+/// the printed range to the real spec instead of the raw arithmetic, so the
+/// UI doesn't claim range the sensor isn't actually rated for.
 const double _gateWidthM = 0.7;
-String _gateRange(int gate) =>
-    '${(gate * _gateWidthM).toStringAsFixed(1)}–${((gate + 1) * _gateWidthM).toStringAsFixed(1)} m';
+const double _sensorMaxRangeM = 10.0;
+String _gateRange(int gate) {
+  final lo = gate * _gateWidthM;
+  if (lo >= _sensorMaxRangeM) return 'beyond ${_sensorMaxRangeM.toStringAsFixed(1)}m range';
+  final hi = ((gate + 1) * _gateWidthM).clamp(0, _sensorMaxRangeM);
+  return '${lo.toStringAsFixed(1)}–${hi.toStringAsFixed(1)} m';
+}
 
 /// HLK-LD2402 presence radar -- live readings, calibration, and thresholds.
 /// A separate section rather than folded into Advanced: this talks to a
@@ -31,6 +42,12 @@ class _SensorScreenState extends State<SensorScreen> {
   SensorConfig? _cfg;
   bool _cfgLoading = false;
   String? _cfgError;
+  // Paused while calibration/auto-gain is running -- both hold the sensor's
+  // UART for many seconds, and the ESP8266 web server only handles one
+  // request at a time, so once-a-second polling underneath a 20s+ blocking
+  // request just piles up pending connections against a very memory-limited
+  // device instead of doing anything useful.
+  bool _sensorBusy = false;
 
   ClockApi? _api(BuildContext context) {
     final ctl = context.read<ClockController>();
@@ -55,6 +72,7 @@ class _SensorScreenState extends State<SensorScreen> {
   }
 
   Future<void> _pollLive() async {
+    if (_sensorBusy) return;
     final api = _api(context);
     if (api == null) return;
     try {
@@ -124,7 +142,11 @@ class _SensorScreenState extends State<SensorScreen> {
               },
               apiOf: () => _api(context),
             ),
-          if (_cfg != null) _CalibrationCard(apiOf: () => _api(context)),
+          if (_cfg != null)
+            _CalibrationCard(
+              apiOf: () => _api(context),
+              onBusyChanged: (busy) => setState(() => _sensorBusy = busy),
+            ),
           if (_cfg != null)
             _GateTuningCard(apiOf: () => _api(context), liveOf: () => _live),
           _SerialDebugCard(ctl: ctl),
@@ -496,7 +518,8 @@ class _ConfigCardState extends State<_ConfigCard> {
 
 class _CalibrationCard extends StatefulWidget {
   final ClockApi? Function() apiOf;
-  const _CalibrationCard({required this.apiOf});
+  final ValueChanged<bool>? onBusyChanged;
+  const _CalibrationCard({required this.apiOf, this.onBusyChanged});
   @override
   State<_CalibrationCard> createState() => _CalibrationCardState();
 }
@@ -509,15 +532,29 @@ class _CalibrationCardState extends State<_CalibrationCard> {
   Future<void> _calibrate() async {
     final api = widget.apiOf();
     if (api == null) return;
-    setState(() { _calibrating = true; _result = 'Calibrating… stay out of the room, this takes a few seconds.'; });
+    widget.onBusyChanged?.call(true);
+    setState(() { _calibrating = true; _result = 'Calibrating… keep the room clear of movement — this can take up to two minutes.'; });
     try {
       final r = await api.calibrateSensor();
-      setState(() => _result = (r['ok'] == true)
-          ? 'Calibration complete.'
-          : 'Stopped at ${r['percent']}% — try again, or check the sensor is wired.');
+      setState(() {
+        if (r['ok'] != true) {
+          _result = 'Stopped at ${r['percent']}% — try again, or check the sensor is wired.';
+          return;
+        }
+        if (r['interference'] == true) {
+          final mask = (r['interferenceGates'] as int?) ?? 0;
+          final gates = [for (var g = 0; g < 16; g++) if ((mask >> g) & 1 == 1) g];
+          final where = gates.isEmpty ? '' : ' (near ${gates.map(_gateRange).join(', ')})';
+          _result = 'Calibration complete, but detected movement in the room$where — '
+              'for best results, redo it with the room clear.';
+        } else {
+          _result = 'Calibration complete.';
+        }
+      });
     } catch (e) {
       setState(() => _result = 'Failed: $e');
     } finally {
+      widget.onBusyChanged?.call(false);
       if (mounted) setState(() => _calibrating = false);
     }
   }
@@ -525,6 +562,7 @@ class _CalibrationCardState extends State<_CalibrationCard> {
   Future<void> _autoGain() async {
     final api = widget.apiOf();
     if (api == null) return;
+    widget.onBusyChanged?.call(true);
     setState(() { _gaining = true; _result = 'Adjusting gain…'; });
     try {
       final r = await api.autoGainSensor();
@@ -532,6 +570,7 @@ class _CalibrationCardState extends State<_CalibrationCard> {
     } catch (e) {
       setState(() => _result = 'Failed: $e');
     } finally {
+      widget.onBusyChanged?.call(false);
       if (mounted) setState(() => _gaining = false);
     }
   }
@@ -733,14 +772,50 @@ class _GateTuningCardState extends State<_GateTuningCard> {
     );
   }
 
+  final Set<int> _savingGate = {};
+
+  // Writes just this one gate via the dedicated single-gate endpoint, rather
+  // than the full-16 array the bottom "Save to sensor" button uses -- lets a
+  // one-gate tweak be saved without re-sending every other gate's value.
+  Future<void> _saveGate(int i) async {
+    final api = widget.apiOf();
+    if (api == null) return;
+    setState(() => _savingGate.add(i));
+    try {
+      await api.setSensorGate(i, motionDb: _motion[i], microDb: _micro[i], save: true);
+      if (mounted) showToast(context, 'Gate $i saved');
+    } catch (e) {
+      if (mounted) showToast(context, 'Failed: $e');
+    } finally {
+      if (mounted) setState(() => _savingGate.remove(i));
+    }
+  }
+
   Widget _gateRow(ClockColors c, int i, {double? motionEnergy, double? microEnergy}) {
+    final saving = _savingGate.contains(i);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Gate $i · ${_gateRange(i)}',
-              style: TextStyle(fontSize: 12, color: c.title, fontWeight: FontWeight.w500)),
+          Row(children: [
+            Text('Gate $i · ${_gateRange(i)}',
+                style: TextStyle(fontSize: 12, color: c.title, fontWeight: FontWeight.w500)),
+            const Spacer(),
+            InkWell(
+              onTap: saving ? null : () => _saveGate(i),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: saving
+                    ? SizedBox(
+                        width: 12, height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: c.accent),
+                      )
+                    : Text('Save this gate',
+                        style: TextStyle(fontSize: 10.5, color: c.accent)),
+              ),
+            ),
+          ]),
           _thresholdRow(c, 'Move', c.accent, motionEnergy, _motion[i],
               (v) => setState(() => _motion[i] = v)),
           _thresholdRow(c, 'Still', c.presence, microEnergy, _micro[i],
