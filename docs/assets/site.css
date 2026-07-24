@@ -44,17 +44,34 @@ header.hero{text-align:center;padding:56px 20px 30px}
 header.hero h1{font-size:clamp(34px,7vw,56px);margin:16px 0 12px;letter-spacing:-.02em;
   line-height:1.05;text-wrap:balance}
 header.hero .sub{font-size:clamp(16px,2.3vw,20px);color:var(--muted);max-width:580px;margin:0 auto}
-.clock{margin:34px auto 0;max-width:330px;
-  background:radial-gradient(120% 120% at 50% 0%,#14161c 0,#050608 80%);
-  border:1px solid var(--line);border-radius:16px;padding:24px 20px;
-  display:flex;align-items:center;justify-content:center;gap:14px}
-.clock .d{font-weight:700;font-size:60px;color:var(--seg);
-  text-shadow:0 0 16px rgba(230,238,255,.35);font-variant-numeric:tabular-nums}
-.clock .c{display:flex;flex-direction:column;gap:15px}
-.clock .c i{width:11px;height:11px;border-radius:50%;background:var(--seg);
-  box-shadow:0 0 12px rgba(230,238,255,.5);animation:blink 2s steps(1) infinite}
-@keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:.12}}
-@media (prefers-reduced-motion:reduce){.clock .c i{animation:none}}
+/* ---- hero clock face: same markup/CSS approach as the HA Lovelace card
+   (homeassistant/clockwise-card.js) -- this IS the project's visual identity,
+   not a simplified stand-in for it. Digits are real 7-segment SVGs (see the
+   inline script at the bottom of index.html), not a bold font pretending. */
+.cwhero{margin:34px auto 0;max-width:420px}
+.cwhero-panel{background:radial-gradient(130% 130% at 50% 0%,#14161c 0,#030304 78%);
+  padding:16px 18px 12px;border-radius:14px;border:1px solid var(--line);overflow-x:auto}
+.cwhero-top{display:flex;align-items:center;gap:8px}
+.cwhero-dow{display:flex;flex-direction:column;justify-content:space-between;padding:2px 0}
+.cwhero-dow span{font-family:ui-monospace,"Consolas","SF Mono","Courier New",monospace;
+  font-size:12px;font-weight:700;letter-spacing:1.2px;color:#31353d;
+  width:38px;height:13px;display:flex;align-items:center;line-height:1}
+.cwhero-dow span.on{color:#f4f6ff;text-shadow:0 0 10px rgba(230,238,255,.65)}
+.cwhero-time{display:flex;align-items:center;flex:1;justify-content:space-evenly}
+.cwhero-digits{display:flex;gap:6px}
+.cwhero-colon{display:flex;flex-direction:column;align-items:center;height:96px;padding:0 3px}
+.cwhero-logo{width:10px;height:10px;border-radius:50%;background:#26282e;margin-top:2px;flex:0 0 auto}
+.cwhero-dots{flex:1;display:flex;flex-direction:column;justify-content:center;gap:18px}
+.cwhero-dots i{width:12px;height:12px;border-radius:50%;background:#f4f6ff;
+  box-shadow:0 0 12px 2px rgba(230,238,255,.55);animation:cwhblink 1s steps(1,end) infinite}
+@keyframes cwhblink{0%,80%{opacity:1}80.01%,100%{opacity:.12}}
+@media (prefers-reduced-motion:reduce){.cwhero-dots i{animation:none}}
+.cwhero-amber{height:4px;border-radius:3px;margin:8px 0 6px;
+  background:linear-gradient(90deg,#f5a623,#e8890a);box-shadow:0 0 13px 1px rgba(245,166,35,.4)}
+.cwhero-bottom{display:flex;align-items:flex-end;justify-content:space-between;padding:0 2px}
+.cwhero-grp{display:flex;align-items:flex-end;gap:3px}
+.cwhero-lab{font-size:12px;font-weight:700;color:#525863;letter-spacing:.06em;padding-bottom:3px}
+.cwhero-caption{text-align:center;color:var(--muted);font-size:14px;margin:12px auto 0;max-width:480px}
 
 /* ---- flash card ---- */
 .flash{background:linear-gradient(180deg,var(--panel),var(--panel2));

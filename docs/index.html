@@ -25,11 +25,27 @@
   for an ESP-based clock — automatic time, adaptive brightness, and presence
   sensing, all running <b>locally</b>. Built and proven on the Ajanta OLC-501,
   and adaptable to similar displays.</p>
-  <div class="clock" aria-hidden="true">
-    <span class="d">10</span>
-    <span class="c"><i></i><i></i></span>
-    <span class="d">45</span>
+  <div class="cwhero" aria-hidden="true">
+    <div class="cwhero-panel">
+      <div class="cwhero-top">
+        <div class="cwhero-dow" id="cwh-dow"></div>
+        <div class="cwhero-time">
+          <div class="cwhero-digits" id="cwh-h"></div>
+          <div class="cwhero-colon"><span class="cwhero-logo"></span><div class="cwhero-dots" id="cwh-dots"><i></i><i></i></div></div>
+          <div class="cwhero-digits" id="cwh-m"></div>
+        </div>
+      </div>
+      <div class="cwhero-amber"></div>
+      <div class="cwhero-bottom">
+        <div class="cwhero-grp"><div class="cwhero-digits" id="cwh-d"></div><span class="cwhero-lab">D</span></div>
+        <div class="cwhero-grp"><div class="cwhero-digits" id="cwh-mo"></div><span class="cwhero-lab">M</span></div>
+        <div class="cwhero-grp"><div class="cwhero-digits" id="cwh-y"></div><span class="cwhero-lab">Y</span></div>
+      </div>
+    </div>
   </div>
+  <p class="cwhero-caption">This is the actual clock face — pixel-for-pixel the same
+  in the physical clock, the phone app, and <a href="home-assistant.html">the Home
+  Assistant card</a>.</p>
 </header>
 
 <div class="wrap">
@@ -108,6 +124,52 @@
 <span style="color:var(--faint)">"Ajanta OLC-501" is a hardware descriptor only — not affiliated.</span></footer>
 
 <script>
+  // Hero clock face -- same segment data/renderer as the real HA card
+  // (homeassistant/clockwise-card.js), shown here with the VISITOR's own
+  // browser clock so it's a live, honest demo rather than a static image.
+  (function(){
+    var SEG = {'0':'abcdef','1':'bc','2':'abged','3':'abgcd','4':'fgbc','5':'afgcd','6':'afgedc','7':'abc','8':'abcdefg','9':'abcfgd'};
+    var SEGP = {
+      a:'11,3 35,3 38.5,6.5 35,10 11,10 7.5,6.5',
+      b:'37,13 40.5,9.5 44,13 44,35 40.5,38.5 37,35',
+      c:'37,49 40.5,45.5 44,49 44,71 40.5,74.5 37,71',
+      d:'11,74 35,74 38.5,77.5 35,81 11,81 7.5,77.5',
+      e:'2,49 5.5,45.5 9,49 9,71 5.5,74.5 2,71',
+      f:'2,13 5.5,9.5 9,13 9,35 5.5,38.5 2,35',
+      g:'11,38.5 35,38.5 38.5,42 35,45.5 11,45.5 7.5,42'
+    };
+    var DAYS = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+    function digitSVG(ch, h) {
+      var w = h * 46 / 84, on = SEG[ch] || '';
+      var s = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 46 84" style="display:block;overflow:visible">';
+      for (var k in SEGP) {
+        var lit = on.indexOf(k) >= 0;
+        s += '<polygon points="' + SEGP[k] + '" fill="' + (lit ? '#f4f6ff' : '#2c3038') + '"' +
+             (lit ? ' style="filter:drop-shadow(0 0 4px rgba(230,238,255,.45))"' : '') + '/>';
+      }
+      return s + '</svg>';
+    }
+    function digitsHTML(num, h) {
+      return String(num).split('').map(function(c){ return digitSVG(c, h); }).join('');
+    }
+    function paint() {
+      var el = document.getElementById('cwh-h');
+      if (!el) return;   // not on this page
+      var now = new Date();
+      var h12 = now.getHours() % 12; h12 = h12 === 0 ? 12 : h12;
+      document.getElementById('cwh-h').innerHTML = digitsHTML(h12, 84);
+      document.getElementById('cwh-m').innerHTML = digitsHTML(('0' + now.getMinutes()).slice(-2), 84);
+      document.getElementById('cwh-d').innerHTML = digitsHTML(('0' + now.getDate()).slice(-2), 40);
+      document.getElementById('cwh-mo').innerHTML = digitsHTML(now.getMonth() + 1, 40);
+      document.getElementById('cwh-y').innerHTML = digitsHTML(now.getFullYear(), 40);
+      var dow = document.getElementById('cwh-dow');
+      var todayIdx = (now.getDay() + 6) % 7;   // JS: 0=Sun -> Mon-first index
+      dow.innerHTML = DAYS.map(function(d, i){ return '<span class="' + (i === todayIdx ? 'on' : '') + '">' + d + '</span>'; }).join('');
+    }
+    paint();
+    setInterval(paint, 1000);
+  })();
+
   // Board selector -> point the installer at the chosen board's manifest.
   var sel = document.getElementById('board'), inst = document.getElementById('installer');
   if (sel && inst) sel.addEventListener('change', function(){ inst.setAttribute('manifest', sel.value); });
