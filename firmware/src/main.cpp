@@ -380,8 +380,19 @@ const int BTN_ABORT = 15;
 const int LOG_CAP = 40;
 String logBuf[LOG_CAP];
 int logHead = 0, logCount = 0;
+bool rtcReadAll(int &h12, bool &pm, int &m, int &s, int &dd, int &mo, int &yr, int &dow);   // defined below, used here for real timestamps
 void logAdd(const String &s) {
-    char ts[12]; snprintf(ts, sizeof(ts), "%lus: ", millis() / 1000);
+    int h, m, sec, dd, mo, yr, dw; bool pm;
+    char ts[12];
+    // Real time when the RTC's readable (the normal case), falling back to
+    // seconds-since-boot only if it isn't -- e.g. very early in boot, or an
+    // actual RTC fault, both rare.
+    if (rtcReadAll(h, pm, m, sec, dd, mo, yr, dw)) {
+        int h24 = (h % 12) + (pm ? 12 : 0);
+        snprintf(ts, sizeof(ts), "%02d:%02d:%02d ", h24, m, sec);
+    } else {
+        snprintf(ts, sizeof(ts), "%lus: ", millis() / 1000);
+    }
     logBuf[logHead] = String(ts) + s;
     logHead = (logHead + 1) % LOG_CAP;
     if (logCount < LOG_CAP) logCount++;
