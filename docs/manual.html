@@ -762,10 +762,26 @@ would be misread as commands (it blanked the display), so the serial console is
 </tr>
 </tbody>
 </table>
-<p>Gates are ~0.7 m distance slices, gate 0 nearest. Each has a motion threshold
-(moving targets) and a micro threshold (still / breathing). Presence-based
-auto-dim ("dim when empty") is on the same screen. See the standalone
+<p>Gates are ~0.7 m distance slices, gate 0 nearest — but the sensor's own
+supported range tops out at <strong>10.0 m</strong> (the app clamps the max-distance slider
+there, and gate labels beyond it read "beyond 10.0m range" rather than a real
+number). Each gate has a motion threshold (moving targets) and a micro
+threshold (still / breathing). Presence-based auto-dim ("dim when empty") is
+on the same screen. See the standalone
 <a href="https://github.com/g0urav2410/LD2402">LD2402</a> library for the protocol.</p>
+<h3 id="calibrating">Calibrating</h3>
+<p><strong>Auto-calibrate</strong> (Settings → Presence sensor) generates fresh thresholds for
+the room the clock is actually in. It can take <strong>up to two minutes</strong> — the
+sensor's own datasheet gives no fixed duration, since it depends on the room —
+and <strong>the room needs to stay clear of movement</strong> while it runs, or the result
+may be reported as affected by interference (the app will say which ~0.7 m
+gate). If it stops before reaching 100%, retry once the room's quiet; a
+result stuck partway despite a quiet room can mean the sensor's UART link is
+unreliable — check the wiring.</p>
+<p><strong>Auto-gain</strong> corrects a saturated front-end (typically needed once, if the
+sensor was mounted somewhere reflective) and finishes in a few seconds.</p>
+<p>Both block the clock's API while running — nothing else will respond until
+they finish or time out.</p>
 <hr>
 <h2 id="updating-firmware">Updating firmware</h2>
 <p>Over the air, no cable:</p>

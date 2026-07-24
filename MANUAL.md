@@ -413,10 +413,30 @@ On the hardware UART, engineering mode — full data. Controlled from
 | `POST /api/sensor/calibrate` | auto-generate thresholds for the room |
 | `POST /api/sensor/autogain` | correct a saturated front-end |
 
-Gates are ~0.7 m distance slices, gate 0 nearest. Each has a motion threshold
-(moving targets) and a micro threshold (still / breathing). Presence-based
-auto-dim ("dim when empty") is on the same screen. See the standalone
+Gates are ~0.7 m distance slices, gate 0 nearest — but the sensor's own
+supported range tops out at **10.0 m** (the app clamps the max-distance slider
+there, and gate labels beyond it read "beyond 10.0m range" rather than a real
+number). Each gate has a motion threshold (moving targets) and a micro
+threshold (still / breathing). Presence-based auto-dim ("dim when empty") is
+on the same screen. See the standalone
 [LD2402](https://github.com/g0urav2410/LD2402) library for the protocol.
+
+### Calibrating
+
+**Auto-calibrate** (Settings → Presence sensor) generates fresh thresholds for
+the room the clock is actually in. It can take **up to two minutes** — the
+sensor's own datasheet gives no fixed duration, since it depends on the room —
+and **the room needs to stay clear of movement** while it runs, or the result
+may be reported as affected by interference (the app will say which ~0.7 m
+gate). If it stops before reaching 100%, retry once the room's quiet; a
+result stuck partway despite a quiet room can mean the sensor's UART link is
+unreliable — check the wiring.
+
+**Auto-gain** corrects a saturated front-end (typically needed once, if the
+sensor was mounted somewhere reflective) and finishes in a few seconds.
+
+Both block the clock's API while running — nothing else will respond until
+they finish or time out.
 
 ---
 
