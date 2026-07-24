@@ -114,8 +114,6 @@ class _SensorScreenState extends State<SensorScreen> {
         children: [
           _LiveCard(live: _live),
           _DimOverlayCard(dimActive: ctl.state?.presenceDimActive, ctl: ctl),
-          if (_live?.engineering == true && (_live?.motionEnergyDb.isNotEmpty ?? false))
-            _EnergyCard(live: _live!),
           if (_cfgLoading)
             const GlassCard(
               child: Padding(
@@ -219,62 +217,6 @@ class _Pill extends StatelessWidget {
         ),
         child: Text(label,
             style: TextStyle(fontSize: 12, color: on ? c.presence : c.muted)),
-      );
-}
-
-/// 16 motion + 16 micro-motion gates, near to far. Bars scaled against 0-80dB
-/// -- comfortably above anything this sensor reports in practice, so the bars
-/// use their range without needing a live auto-scale that jitters.
-class _EnergyCard extends StatelessWidget {
-  final SensorState live;
-  const _EnergyCard({required this.live});
-  static const double _maxDb = 80;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = Theme.of(context).extension<ClockColors>()!;
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Signal strength by distance', style: TextStyle(fontSize: 14, color: c.title)),
-          const SizedBox(height: 2),
-          Text('Each row is a ~0.7 m slice, nearest at top. '
-              'Blue = movement, green = micro-motion (still / breathing).',
-              style: TextStyle(fontSize: 11, color: c.muted)),
-          const SizedBox(height: 10),
-          for (int i = 0; i < live.motionEnergyDb.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(children: [
-                SizedBox(
-                  width: 62,
-                  child: Text(_gateRange(i),
-                      style: TextStyle(fontSize: 10, color: c.muted)),
-                ),
-                Expanded(
-                  child: Column(children: [
-                    _bar(live.motionEnergyDb[i], c.accent, c),
-                    const SizedBox(height: 2),
-                    if (i < live.microEnergyDb.length)
-                      _bar(live.microEnergyDb[i], c.presence, c),
-                  ]),
-                ),
-              ]),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _bar(double db, Color color, ClockColors c) => ClipRRect(
-        borderRadius: BorderRadius.circular(2),
-        child: LinearProgressIndicator(
-          value: (db / _maxDb).clamp(0.0, 1.0),
-          minHeight: 5,
-          backgroundColor: c.divider,
-          valueColor: AlwaysStoppedAnimation(color),
-        ),
       );
 }
 
@@ -675,7 +617,17 @@ class _GateTuningCardState extends State<_GateTuningCard> {
   String? _error;
   List<double> _motion = [];
   List<double> _micro = [];
+  // What's actually on the sensor right now (as of the last load/save) --
+  // compared against _motion/_micro to know whether there's anything unsaved
+  // to send. Saving unchanged values is a pointless flash write.
+  List<double> _savedMotion = [];
+  List<double> _savedMicro = [];
   static const double _maxDb = 80;
+
+  bool _gateDirty(int i) =>
+      i >= _savedMotion.length || i >= _savedMicro.length ||
+      _motion[i] != _savedMotion[i] || _micro[i] != _savedMicro[i];
+  bool get _anyDirty => List.generate(_motion.length, (i) => i).any(_gateDirty);
 
   // Merged in here rather than its own card: the live bars this whole card is
   // built around only exist when Full data is on, so having the toggle live
@@ -706,6 +658,8 @@ class _GateTuningCardState extends State<_GateTuningCard> {
         // slider is still usable rather than pinned at 0.
         _motion = t.motion.map((v) => v ?? 35.0).toList();
         _micro = t.micro.map((v) => v ?? 35.0).toList();
+        _savedMotion = List.of(_motion);
+        _savedMicro = List.of(_micro);
         _loading = false;
       });
     } catch (e) {
@@ -722,6 +676,8 @@ class _GateTuningCardState extends State<_GateTuningCard> {
         'motionThresholdDb': _motion,
         'microThresholdDb': _micro,
       }, save: true);
+      _savedMotion = List.of(_motion);
+      _savedMicro = List.of(_micro);
       if (mounted) showToast(context, 'Saved to sensor');
     } catch (e) {
       if (mounted) showToast(context, 'Failed: $e');
@@ -806,8 +762,8 @@ class _GateTuningCardState extends State<_GateTuningCard> {
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton(
-                  onPressed: _saving ? null : _save,
-                  child: Text(_saving ? 'Saving…' : 'Save to sensor'),
+                  onPressed: (_saving || !_anyDirty) ? null : _save,
+                  child: Text(_saving ? 'Saving…' : (_anyDirty ? 'Save to sensor' : 'Nothing to save')),
                 ),
               ),
             ]),
@@ -828,6 +784,8 @@ class _GateTuningCardState extends State<_GateTuningCard> {
     setState(() => _savingGate.add(i));
     try {
       await api.setSensorGate(i, motionDb: _motion[i], microDb: _micro[i], save: true);
+      _savedMotion[i] = _motion[i];
+      _savedMicro[i] = _micro[i];
       if (mounted) showToast(context, 'Gate $i saved');
     } catch (e) {
       if (mounted) showToast(context, 'Failed: $e');
@@ -838,6 +796,7 @@ class _GateTuningCardState extends State<_GateTuningCard> {
 
   Widget _gateRow(ClockColors c, int i, {double? motionEnergy, double? microEnergy}) {
     final saving = _savingGate.contains(i);
+    final dirty = _gateDirty(i);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
@@ -847,19 +806,22 @@ class _GateTuningCardState extends State<_GateTuningCard> {
             Text('Gate $i · ${_gateRange(i)}',
                 style: TextStyle(fontSize: 12, color: c.title, fontWeight: FontWeight.w500)),
             const Spacer(),
-            InkWell(
-              onTap: saving ? null : () => _saveGate(i),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                child: saving
-                    ? SizedBox(
-                        width: 12, height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 1.5, color: c.accent),
-                      )
-                    : Text('Save this gate',
-                        style: TextStyle(fontSize: 10.5, color: c.accent)),
+            // No point offering to save a gate that hasn't actually changed
+            // since it was last loaded/saved -- nothing there to write.
+            if (dirty || saving)
+              InkWell(
+                onTap: saving ? null : () => _saveGate(i),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: saving
+                      ? SizedBox(
+                          width: 12, height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: c.accent),
+                        )
+                      : Text('Save this gate',
+                          style: TextStyle(fontSize: 10.5, color: c.accent)),
+                ),
               ),
-            ),
           ]),
           _thresholdRow(c, 'Move', c.accent, motionEnergy, _motion[i],
               (v) => setState(() => _motion[i] = v)),
