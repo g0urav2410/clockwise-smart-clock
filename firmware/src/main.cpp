@@ -1330,6 +1330,19 @@ void ntpSync() {
 
 // ── shared config-apply (used by both MQTT clock/config and the local API) ──
 void applyConfigJson(const JsonDocument &doc) {
+    // Logs which settings changed, not their values (mqttPass/wifiPass are in
+    // here too, and even the non-secret fields aren't worth spelling out --
+    // this is "what happened", the settings screens already show "what it's
+    // set to now"). MQTT's own config-apply path (mqttCallback) shares this
+    // function, so this covers changes from HA too, not just the app.
+    if (doc.size() > 0) {
+        String keys;
+        for (JsonPairConst kv : doc.as<JsonObjectConst>()) {
+            if (keys.length()) keys += ", ";
+            keys += kv.key().c_str();
+        }
+        logAdd("Config changed: " + keys);
+    }
     if (doc["full"].is<int>())       cfg.fullPct     = doc["full"];
     if (doc["dim"].is<int>())        cfg.dimPct      = doc["dim"];
     if (doc["night"].is<int>())      cfg.nightPct    = doc["night"];
@@ -2068,6 +2081,12 @@ int  btnHeldSecs = 0;
 
 void apiDebugCmdPost();   // defined below setup(), which registers it as a route
 
+// Event callbacks, not polling -- these fire on the actual connect/drop
+// rather than needing a periodic WiFi.status() check added somewhere. Purely
+// additive: ESP8266's own auto-reconnect already handles the reconnect
+// itself, this only logs it.
+WiFiEventHandler wifiGotIpHandler, wifiDisconnectedHandler;
+
 void setup() {
     Serial.begin(115200); delay(300);
     radar.begin(Serial);
@@ -2078,6 +2097,12 @@ void setup() {
     Wire.begin(PIN_SDA, PIN_SCL); Wire.setClock(100000); delay(100);
 
     loadConfig();
+    wifiGotIpHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP &e) {
+        logAdd("WiFi connected, IP " + e.ip.toString());
+    });
+    wifiDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected &e) {
+        logAdd("WiFi disconnected (reason " + String((int)e.reason) + ")");
+    });
     lastPresenceMs = millis();   // grace period -- don't dim before the radar's had a chance to see anyone
     brightness = cfg.manualPct;
     setBrightness(brightness);
